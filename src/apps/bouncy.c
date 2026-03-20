@@ -16,6 +16,7 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     if(bx >= window->w) bx = window->w - 1;
     if(by >= window->h) by = window->h - 1;
   }
+  if(event == WINDOW_EVENT_FOCUS) return true;
   return false;
 }
 void update(window_t* window, desktop_t* desktop) {
