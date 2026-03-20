@@ -3,6 +3,23 @@
 
 typedef struct desktop_t desktop_t;
 typedef struct window_t window_t;
+typedef enum window_event_t {
+  WINDOW_EVENT_NONE,
+  WINDOW_EVENT_KEY,
+  WINDOW_EVENT_MOVE,
+  WINDOW_EVENT_RESIZE,
+  WINDOW_EVENT_FOCUS,
+  WINDOW_EVENT_UNFOCUS,
+  WINDOW_EVENT_CLOSE,
+  WINDOW_EVENT_OPEN,
+} window_event_t;
+typedef struct window_move_event_t {
+  int dx, dy;
+} window_move_event_t;
+typedef struct window_resize_event_t {
+  int dw, dh;
+} window_resize_event_t;
+typedef int window_key_event_t;
 typedef struct window_t {
   int x, y, w, h;
   char* title;
@@ -11,15 +28,33 @@ typedef struct window_t {
   void (*draw)(window_t* window, desktop_t* desktop);
   void (*onevent)(window_t* window, desktop_t* desktop, int event, void* data);
 } window_t;
+typedef enum desktop_state_t {
+  STATE_NORMAL,
+  STATE_PROMPT_FOCUS,
+  STATE_PROMPT_MOVE,
+  STATE_PROMPT_RESIZE,
+  STATE_PROMPT_CLOSE,
+  STATE_PROMPT_OPEN,
+  STATE_FOCUSED,
+  STATE_MOVING,
+  STATE_RESIZING
+} desktop_state_t;
 typedef struct desktop_t {
   window_t* windows;
   int window_count;
   int window_capacity;
-  char* statusbar_text;
+  char* statustext;
+  desktop_state_t state;
+  char buf[256];
+  int buflen;
+  int target;
+  int ox, oy, ow, oh;
   bool (*before_update)(desktop_t* desktop);
   bool (*update)(desktop_t* desktop);
   bool (*after_update)(desktop_t* desktop);
   void (*before_draw)(desktop_t* desktop);
   void (*draw)(desktop_t* desktop);
+  void (*before_window_draw)(desktop_t* desktop, window_t* window, int i);
+  void (*after_window_draw)(desktop_t* desktop, window_t* window, int i);
   void (*after_draw)(desktop_t* desktop);
 } desktop_t;

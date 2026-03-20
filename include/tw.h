@@ -10,6 +10,8 @@ void tw_deinit();
 tw_wh_t tw_get_size();
 void tw_putc(char c, int x, int y, char attr);
 void tw_puts(const char* s, int x, int y, char attr);
+void tw_fill(int x, int y, int w, int h, char attr);
+void tw_printf(int x, int y, char attr, const char* fmt, ...);
 void tw_clear(char attr);
 void tw_flush();
 void tw_flush_region(int x, int y, int w, int h);

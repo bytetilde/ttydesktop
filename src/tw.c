@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+
 static struct termios orig_termios;
 static int tw_w = 0, tw_h = 0;
 static uint16_t* tw_buf = NULL;
@@ -72,6 +74,18 @@ void tw_putc(char c, int x, int y, char attr) {
 }
 void tw_puts(const char* s, int x, int y, char attr) {
   while(*s) tw_putc(*s++, x++, y, attr);
+}
+void tw_fill(int x, int y, int w, int h, char attr) {
+  for(int i = y; i < y + h; i++)
+    for(int j = x; j < x + w; j++) tw_putc(' ', j, i, attr);
+}
+void tw_printf(int x, int y, char attr, const char* fmt, ...) {
+  char buf[1024];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  tw_puts(buf, x, y, attr);
 }
 void tw_clear(char attr) {
   uint16_t val = ((uint16_t)(uint8_t)attr << 8) | (uint8_t)' ';

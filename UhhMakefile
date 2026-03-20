@@ -1,6 +1,6 @@
 CC := clang
-CFLAGS := -Wall -Wextra -Iinclude -MMD -MP -fPIC -pthread
-LDFLAGS := -fuse-ld=lld -pthread -ldl -rdynamic
+CFLAGS := -Wall -Wextra -Iinclude -MMD -MP -fPIC -pthread -march=silvermont -mtune=silvermont -O3 -flto=full
+LDFLAGS := -fuse-ld=lld -pthread -ldl -rdynamic -static -flto=full -s
 
 TARGET := ttydesktop
 
