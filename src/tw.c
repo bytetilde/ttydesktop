@@ -1,6 +1,7 @@
 #include "../include/tw.h"
 #include <ctype.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,12 +14,31 @@ static int tw_w = 0, tw_h = 0;
 static uint16_t* tw_buf = NULL;
 static bool tw_keys[2048] = {0};
 static int tw_peek_buf = -1;
+static volatile sig_atomic_t tw_resized = 0;
+static void tw_sigwinch_handler(int sig) {
+  (void)sig;
+  tw_resized = 1;
+}
+static void tw_check_resize() {
+  if(!tw_resized) return;
+  tw_resized = 0;
+  tw_wh_t sz = tw_get_size();
+  if(sz.w == tw_w && sz.h == tw_h) return;
+  uint16_t* new_buf = realloc(tw_buf, sz.w * sz.h * sizeof(uint16_t));
+  if(new_buf) {
+    tw_buf = new_buf;
+    tw_w = sz.w;
+    tw_h = sz.h;
+    memset(tw_buf, 0, tw_w * tw_h * sizeof(uint16_t));
+  }
+}
 tw_wh_t tw_get_size() {
   struct winsize ws;
   if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) return (tw_wh_t){80, 24};
   return (tw_wh_t){ws.ws_col, ws.ws_row};
 }
 void tw_init() {
+  if(tw_buf) return;
   tcgetattr(STDIN_FILENO, &orig_termios);
   struct termios raw = orig_termios;
   raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
@@ -34,14 +54,17 @@ void tw_init() {
   tw_h = sz.h;
   tw_buf = malloc(tw_w * tw_h * sizeof(uint16_t));
   memset(tw_buf, 0, tw_w * tw_h * sizeof(uint16_t));
+  signal(SIGWINCH, tw_sigwinch_handler);
   atexit(tw_deinit);
 }
 void tw_deinit() {
+  if(!tw_buf) return;
   printf("\033[?25h");
   printf("\033[?1049l");
   fflush(stdout);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
-  if(tw_buf) free(tw_buf);
+  free(tw_buf);
+  tw_buf = NULL;
 }
 void tw_putc(char c, int x, int y, char attr) {
   if(x < 0 || x >= tw_w || y < 0 || y >= tw_h) return;
@@ -63,6 +86,7 @@ static void tw_write_all(const char* buf, int len) {
   }
 }
 void tw_flush_region(int x, int y, int w, int h) {
+  tw_check_resize();
   if(x < 0) {
     w += x;
     x = 0;
@@ -77,7 +101,7 @@ void tw_flush_region(int x, int y, int w, int h) {
   static char out[65536];
   int ptr = 0;
   char current_attr = -1;
-  const int threshold = 65000;
+  const int threshold = 64000;
   for(int j = y; j < y + h; j++) {
     ptr += snprintf(out + ptr, sizeof(out) - ptr, "\033[%d;%dH", j + 1, x + 1);
     for(int i = x; i < x + w; i++) {
@@ -119,7 +143,8 @@ static int tw_read_raw() {
 static int tw_decode_key() {
   int c = tw_read_raw();
   if(c == 27) { // ESC
-    if(!tw_key_pressed()) return TW_KEY_ESC;
+    struct pollfd fds = {STDIN_FILENO, POLLIN, 0};
+    if(poll(&fds, 1, 50) <= 0) return TW_KEY_ESC;
     int next = tw_read_raw();
     if(next == '[') {
       int val = 0;
