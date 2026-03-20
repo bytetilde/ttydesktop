@@ -27,6 +27,9 @@ $(BIN_DIR) $(OBJ_DIR):
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
+run: $(BIN_DIR)/$(TARGET)
+	./$(BIN_DIR)/$(TARGET)
+
 -include $(DEPS)
 
-.PHONY: all clean
+.PHONY: all clean run
