@@ -12,6 +12,7 @@ typedef enum window_event_t {
   WINDOW_EVENT_UNFOCUS,
   WINDOW_EVENT_CLOSE,
   WINDOW_EVENT_OPEN,
+  WINDOW_EVENT_CLOSE_FORCE,
 } window_event_t;
 typedef struct window_move_event_t {
   int dx, dy;

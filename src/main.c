@@ -32,7 +32,17 @@ void* window_draw_wrapper(void* arg) {
   int draww = (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->ow : window->w;
   int drawh = (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->oh : window->h;
   tw_fill(window->x, window->y, draww, 1, title_attr);
-  tw_printf(window->x, window->y, title_attr, "[%d] %s", i, window->title ? window->title : "");
+  char tbuf[512];
+  int idx_len = snprintf(tbuf, sizeof(tbuf), "%d", i);
+  if(draww >= idx_len + 2)
+    snprintf(tbuf, sizeof(tbuf), "[%d] %s", i, window->title ? window->title : "");
+  else if(draww >= idx_len) snprintf(tbuf, sizeof(tbuf), "%d", i);
+  else if(draww > 0) {
+    snprintf(tbuf, sizeof(tbuf), "%d", i);
+    memmove(tbuf, tbuf + (idx_len - draww), draww + 1);
+  } else tbuf[0] = '\0';
+  if(draww > 0 && (int)strlen(tbuf) > draww) tbuf[draww] = '\0';
+  if(tbuf[0] != '\0') tw_printf(window->x, window->y, title_attr, "%s", tbuf);
   if(!(desktop->state == STATE_RESIZING && desktop->target == i)) {
     if(window->content) {
       for(int j = 0; j < window->h; ++j) {
@@ -311,5 +321,13 @@ int main() {
     tw_flush();
     usleep(33333);
   }
+  for(int i = 0; i < desktop.window_count; ++i) {
+    if(desktop.windows[i].onevent) {
+      if(desktop.windows[i].onevent(&desktop.windows[i], &desktop, WINDOW_EVENT_CLOSE, NULL))
+        desktop.windows[i].onevent(&desktop.windows[i], &desktop, WINDOW_EVENT_CLOSE_FORCE, NULL);
+    }
+  }
+  if(desktop.windows) free(desktop.windows);
+  if(desktop.statustext) free(desktop.statustext);
   return 0;
 }
