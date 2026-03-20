@@ -1,6 +1,8 @@
 #include "commonapi.h"
 #include <stdlib.h>
 #include <string.h>
+static int bx = 0, by = 0, bvx = 1, bvy = 1;
+static int fskip = 0;
 
 bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   (void)desktop;
@@ -11,24 +13,24 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   }
   if(event == WINDOW_EVENT_RESIZE) {
     window->content = realloc(window->content, window->w * window->h * sizeof(short));
-    for(int i = 0; i < window->w * window->h; ++i) window->content[i] = 'A' | (0b00001010 << 8);
+    if(bx >= window->w) bx = window->w - 1;
+    if(by >= window->h) by = window->h - 1;
   }
   return false;
 }
 void update(window_t* window, desktop_t* desktop) {
+  fskip = (fskip + 1) % 4;
+  if(fskip) return;
   (void)desktop;
-  for(int j = 0; j < window->h; ++j) {
-    for(int i = 0; i < window->w; ++i) {
-      short c = window->content[j * window->w + i];
-      short attr = c >> 8;
-      attr = (attr + 1) % 256;
-      window->content[j * window->w + i] = (c & 255) | (attr << 8);
-    }
-  }
+  if(bx + bvx < 0 || bx + bvx >= window->w) bvx = -bvx;
+  if(by + bvy < 0 || by + bvy >= window->h) bvy = -bvy;
+  bx += bvx;
+  by += bvy;
 }
 void draw(window_t* window, desktop_t* desktop) {
   (void)desktop;
-  (void)window;
+  for(int i = 0; i < window->w * window->h; ++i) window->content[i] = ' ' | (0b01110000 << 8);
+  window->content[by * window->w + bx] = 'O' | (0b00001010 << 8);
 }
 
 void window_init(window_t* win) {
@@ -36,9 +38,9 @@ void window_init(window_t* win) {
   win->y = 0;
   win->w = 20;
   win->h = 10;
-  win->title = strdup("example app");
+  win->title = strdup("bouncy ball?");
   win->content = calloc(win->w * win->h, sizeof(short));
-  for(int i = 0; i < win->w * win->h; ++i) win->content[i] = 'A' | (0b00001010 << 8);
+  for(int i = 0; i < win->w * win->h; ++i) win->content[i] = ' ' | (0b01110000 << 8);
   win->update = update;
   win->draw = draw;
   win->onevent = onevent;

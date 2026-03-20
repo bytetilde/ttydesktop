@@ -29,8 +29,10 @@ void* window_draw_wrapper(void* arg) {
   if(window->draw) window->draw(window, desktop);
   char title_attr =
     (desktop->state == STATE_FOCUSED && desktop->target == i) ? 0b00100000 : 0b00110000;
-  tw_fill(window->x, window->y, window->w, 1, title_attr);
-  tw_printf(window->x + 1, window->y, title_attr, "[%d] %s", i, window->title ? window->title : "");
+  int draww = (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->ow : window->w;
+  int drawh = (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->oh : window->h;
+  tw_fill(window->x, window->y, draww, 1, title_attr);
+  tw_printf(window->x, window->y, title_attr, "[%d] %s", i, window->title ? window->title : "");
   if(!(desktop->state == STATE_RESIZING && desktop->target == i)) {
     if(window->content) {
       for(int j = 0; j < window->h; ++j) {
@@ -40,9 +42,7 @@ void* window_draw_wrapper(void* arg) {
         }
       }
     }
-  } else {
-    tw_fill(window->x, window->y + 1, window->w, window->h, 0);
-  }
+  } else tw_fill(window->x, window->y + 1, draww, drawh, 0);
   if(desktop->after_window_draw) desktop->after_window_draw(desktop, window, i);
   return NULL;
 }
@@ -199,6 +199,9 @@ bool desktop_update(desktop_t* desktop) {
       }
     } else if(desktop->state == STATE_FOCUSED) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
+        if(desktop->windows[desktop->target].onevent)
+          desktop->windows[desktop->target].onevent(&desktop->windows[desktop->target], desktop,
+                                                    WINDOW_EVENT_UNFOCUS, NULL);
         desktop->state = STATE_NORMAL;
         set_status(desktop, "%d window(s)", desktop->window_count);
       } else if(desktop->windows[0].onevent) {
@@ -212,6 +215,11 @@ bool desktop_update(desktop_t* desktop) {
         desktop->state = STATE_NORMAL;
         set_status(desktop, "%d window(s)", desktop->window_count);
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) {
+        window_move_event_t ev = {desktop->windows[desktop->target].x - desktop->ox,
+                                  desktop->windows[desktop->target].y - desktop->oy};
+        if(desktop->windows[desktop->target].onevent)
+          desktop->windows[desktop->target].onevent(&desktop->windows[desktop->target], desktop,
+                                                    WINDOW_EVENT_MOVE, &ev);
         desktop->state = STATE_NORMAL;
         set_status(desktop, "%d window(s)", desktop->window_count);
       } else if(ch == 'h' || ch == TW_KEY_LEFT) {
@@ -225,19 +233,22 @@ bool desktop_update(desktop_t* desktop) {
       }
     } else if(desktop->state == STATE_RESIZING) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
-        desktop->windows[desktop->target].w = desktop->ow;
-        desktop->windows[desktop->target].h = desktop->oh;
         desktop->state = STATE_NORMAL;
         set_status(desktop, "%d window(s)", desktop->window_count);
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) {
+        window_resize_event_t ev = {desktop->ow - desktop->windows[desktop->target].w,
+                                    desktop->oh - desktop->windows[desktop->target].h};
+        desktop->windows[desktop->target].w = desktop->ow;
+        desktop->windows[desktop->target].h = desktop->oh;
+        if(desktop->windows[desktop->target].onevent)
+          desktop->windows[desktop->target].onevent(&desktop->windows[desktop->target], desktop,
+                                                    WINDOW_EVENT_RESIZE, &ev);
         desktop->state = STATE_NORMAL;
         set_status(desktop, "%d window(s)", desktop->window_count);
-      } else if((ch == 'h' || ch == TW_KEY_LEFT) && desktop->windows[desktop->target].w > 1)
-        --desktop->windows[desktop->target].w;
-      else if(ch == 'l' || ch == TW_KEY_RIGHT) ++desktop->windows[desktop->target].w;
-      else if((ch == 'k' || ch == TW_KEY_UP) && desktop->windows[desktop->target].h > 1)
-        --desktop->windows[desktop->target].h;
-      else if(ch == 'j' || ch == TW_KEY_DOWN) ++desktop->windows[desktop->target].h;
+      } else if((ch == 'h' || ch == TW_KEY_LEFT) && desktop->ow > 1) --desktop->ow;
+      else if(ch == 'l' || ch == TW_KEY_RIGHT) ++desktop->ow;
+      else if((ch == 'k' || ch == TW_KEY_UP) && desktop->oh > 1) --desktop->oh;
+      else if(ch == 'j' || ch == TW_KEY_DOWN) ++desktop->oh;
     }
   }
   if(desktop->window_count > 0) {
