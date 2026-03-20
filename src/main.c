@@ -99,7 +99,7 @@ bool desktop_update(desktop_t* desktop) {
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) { // enter
         int idx = atoi(desktop->buf);
         if(desktop->state == STATE_PROMPT_OPEN) {
-          void* handle = dlopen(desktop->buf, RTLD_NOW | RTLD_GLOBAL);
+          void* handle = dlopen(desktop->buf, RTLD_NOW | RTLD_LOCAL);
           if(handle) {
             void (*init_fn)(window_t*) = dlsym(handle, "window_init");
             if(init_fn) {
