@@ -16,7 +16,11 @@ typedef struct window_thread_arg_t {
 } window_thread_arg_t;
 void* window_update_wrapper(void* arg) {
   window_thread_arg_t* warg = arg;
+  if(warg->desktop->before_window_update)
+    warg->desktop->before_window_update(warg->desktop, warg->window, warg->index);
   if(warg->window->update) warg->window->update(warg->window, warg->desktop);
+  if(warg->desktop->after_window_update)
+    warg->desktop->after_window_update(warg->desktop, warg->window, warg->index);
   return NULL;
 }
 void* window_draw_wrapper(void* arg) {
@@ -27,33 +31,6 @@ void* window_draw_wrapper(void* arg) {
   if(window->hidden) return NULL;
   if(desktop->before_window_draw) desktop->before_window_draw(desktop, window, i);
   if(window->draw) window->draw(window, desktop);
-  char title_attr =
-    (desktop->state == STATE_FOCUSED && desktop->target == i) ? 0b00100000 : 0b01100000;
-  int draww = (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->ow : window->w;
-  int drawh = (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->oh : window->h;
-  tw_fill(window->x, window->y, draww, 1, title_attr);
-  char tbuf[512];
-  int idx_len = snprintf(tbuf, sizeof(tbuf), "%d", i);
-  if(draww >= idx_len + 2)
-    snprintf(tbuf, sizeof(tbuf), "[%d] %s", i, window->title ? window->title : "");
-  else if(draww >= idx_len) snprintf(tbuf, sizeof(tbuf), "%d", i);
-  else if(draww > 0) {
-    snprintf(tbuf, sizeof(tbuf), "%d", i);
-    memmove(tbuf, tbuf + (idx_len - draww), draww + 1);
-  } else tbuf[0] = '\0';
-  if(draww > 0 && (int)strlen(tbuf) > draww) tbuf[draww] = '\0';
-  if(tbuf[0] != '\0') tw_printf(window->x, window->y, title_attr, "%s", tbuf);
-  if(!(desktop->state == STATE_RESIZING && desktop->target == i)) {
-    if(window->content) {
-      for(int j = 0; j < window->h; ++j) {
-        for(int k = 0; k < window->w; ++k) {
-          short c = window->content[j * window->w + k];
-          tw_putc(c & 255, window->x + k, window->y + j + 1, c >> 8);
-        }
-      }
-    }
-  } else tw_fill(window->x, window->y + 1, draww, drawh, 0);
-  if(desktop->after_window_draw) desktop->after_window_draw(desktop, window, i);
   return NULL;
 }
 void set_status(desktop_t* desktop, const char* fmt, ...) {
@@ -61,12 +38,25 @@ void set_status(desktop_t* desktop, const char* fmt, ...) {
   va_start(args, fmt);
   vsnprintf(desktop->statustext, 256, fmt, args);
   va_end(args);
+  if(desktop->on_status_change) desktop->on_status_change(desktop, desktop->statustext);
+}
+bool dispatch_window_event(desktop_t* desktop, window_t* window, int index, int event, void* data) {
+  if(desktop->before_window_event &&
+     desktop->before_window_event(desktop, window, index, event, data))
+    return true;
+  bool ignore = false;
+  if(window->onevent) ignore = window->onevent(window, desktop, event, data);
+  if(desktop->after_window_event) desktop->after_window_event(desktop, window, index, event, data);
+  return ignore;
 }
 bool desktop_update(desktop_t* desktop) {
   if(desktop->before_update && desktop->before_update(desktop)) return true;
   int ch = tw_getch();
   if(ch != -1 && ch != 0) {
-    if(desktop->state == STATE_NORMAL) {
+    if(desktop->before_key && desktop->before_key(desktop, ch)) goto skip_key;
+    if(desktop->on_key) {
+      if(desktop->on_key(desktop, ch)) goto skip_key;
+    } else if(desktop->state == STATE_NORMAL) {
       if(ch == 'q') return true;
       else if(ch == 'f' || ch == 'm' || ch == 'r' || ch == 'c' || ch == 'o') {
         desktop->buflen = 0;
@@ -103,13 +93,18 @@ bool desktop_update(desktop_t* desktop) {
           if(handle) {
             void (*init_fn)(window_t*) = dlsym(handle, "window_init");
             if(init_fn) {
-              desktop->windows =
-                realloc(desktop->windows, sizeof(window_t) * (desktop->window_count + 1));
+              if(desktop->window_count >= desktop->window_capacity) {
+                desktop->window_capacity =
+                  desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
+                desktop->windows =
+                  realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
+              }
               window_t* w = &desktop->windows[desktop->window_count];
               memset(w, 0, sizeof(window_t));
+              w->handle = handle;
               init_fn(w);
               ++desktop->window_count;
-              if(w->onevent) w->onevent(w, desktop, WINDOW_EVENT_OPEN, NULL);
+              dispatch_window_event(desktop, w, desktop->window_count - 1, WINDOW_EVENT_OPEN, NULL);
               set_status(desktop, "opened %s", desktop->buf);
             } else {
               set_status(desktop, "failed to find window_init");
@@ -121,11 +116,8 @@ bool desktop_update(desktop_t* desktop) {
           desktop->state = STATE_NORMAL;
         } else if(idx >= 0 && idx < desktop->window_count) {
           if(desktop->state == STATE_PROMPT_FOCUS) {
-            bool ignore = false;
-            if(desktop->windows[idx].onevent) {
-              ignore = desktop->windows[idx].onevent(&desktop->windows[idx], desktop,
-                                                     WINDOW_EVENT_FOCUS, NULL);
-            }
+            bool ignore =
+              dispatch_window_event(desktop, &desktop->windows[idx], idx, WINDOW_EVENT_FOCUS, NULL);
             if(ignore) {
               desktop->state = STATE_NORMAL;
               set_status(desktop, "window ignored focus");
@@ -166,10 +158,8 @@ bool desktop_update(desktop_t* desktop) {
               set_status(desktop, ":r %d (resizing)", idx);
             }
           } else if(desktop->state == STATE_PROMPT_CLOSE) {
-            bool ignore = false;
-            if(desktop->windows[idx].onevent)
-              ignore = desktop->windows[idx].onevent(&desktop->windows[idx], desktop,
-                                                     WINDOW_EVENT_CLOSE, NULL);
+            bool ignore =
+              dispatch_window_event(desktop, &desktop->windows[idx], idx, WINDOW_EVENT_CLOSE, NULL);
             if(ignore) {
               desktop->state = STATE_NORMAL;
               set_status(desktop, "window ignored close");
@@ -196,8 +186,8 @@ bool desktop_update(desktop_t* desktop) {
           if(desktop->state == STATE_PROMPT_OPEN) pfx = 'o';
           set_status(desktop, ":%c %s", pfx, desktop->buf);
         }
-      } else if(desktop->buflen < 255) {
-        desktop->buf[desktop->buflen++] = ch;
+      } else if(ch >= 32 && ch <= 126 && ch != 127 && desktop->buflen < 255) {
+        desktop->buf[desktop->buflen++] = (char)ch;
         desktop->buf[desktop->buflen] = '\0';
         char pfx = ' ';
         if(desktop->state == STATE_PROMPT_FOCUS) pfx = 'f';
@@ -209,14 +199,12 @@ bool desktop_update(desktop_t* desktop) {
       }
     } else if(desktop->state == STATE_FOCUSED) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
-        if(desktop->windows[desktop->target].onevent)
-          desktop->windows[desktop->target].onevent(&desktop->windows[desktop->target], desktop,
-                                                    WINDOW_EVENT_UNFOCUS, NULL);
+        dispatch_window_event(desktop, &desktop->windows[desktop->target], desktop->target,
+                              WINDOW_EVENT_UNFOCUS, NULL);
         desktop->state = STATE_NORMAL;
         set_status(desktop, "%d window(s)", desktop->window_count);
-      } else if(desktop->windows[0].onevent) {
-        desktop->windows[0].onevent(&desktop->windows[0], desktop, WINDOW_EVENT_KEY,
-                                    (void*)(long)ch);
+      } else {
+        dispatch_window_event(desktop, &desktop->windows[0], 0, WINDOW_EVENT_KEY, (void*)(long)ch);
       }
     } else if(desktop->state == STATE_MOVING) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
@@ -227,20 +215,14 @@ bool desktop_update(desktop_t* desktop) {
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) {
         window_move_event_t ev = {desktop->windows[desktop->target].x - desktop->ox,
                                   desktop->windows[desktop->target].y - desktop->oy};
-        if(desktop->windows[desktop->target].onevent)
-          desktop->windows[desktop->target].onevent(&desktop->windows[desktop->target], desktop,
-                                                    WINDOW_EVENT_MOVE, &ev);
+        dispatch_window_event(desktop, &desktop->windows[desktop->target], desktop->target,
+                              WINDOW_EVENT_MOVE, &ev);
         desktop->state = STATE_NORMAL;
         set_status(desktop, "%d window(s)", desktop->window_count);
-      } else if(ch == 'h' || ch == TW_KEY_LEFT) {
-        --desktop->windows[desktop->target].x;
-      } else if(ch == 'l' || ch == TW_KEY_RIGHT) {
-        ++desktop->windows[desktop->target].x;
-      } else if(ch == 'k' || ch == TW_KEY_UP) {
-        --desktop->windows[desktop->target].y;
-      } else if(ch == 'j' || ch == TW_KEY_DOWN) {
-        ++desktop->windows[desktop->target].y;
-      }
+      } else if(ch == 'h' || ch == TW_KEY_LEFT) --desktop->windows[desktop->target].x;
+      else if(ch == 'l' || ch == TW_KEY_RIGHT) ++desktop->windows[desktop->target].x;
+      else if(ch == 'k' || ch == TW_KEY_UP) --desktop->windows[desktop->target].y;
+      else if(ch == 'j' || ch == TW_KEY_DOWN) ++desktop->windows[desktop->target].y;
     } else if(desktop->state == STATE_RESIZING) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
         desktop->state = STATE_NORMAL;
@@ -250,9 +232,8 @@ bool desktop_update(desktop_t* desktop) {
                                     desktop->oh - desktop->windows[desktop->target].h};
         desktop->windows[desktop->target].w = desktop->ow;
         desktop->windows[desktop->target].h = desktop->oh;
-        if(desktop->windows[desktop->target].onevent)
-          desktop->windows[desktop->target].onevent(&desktop->windows[desktop->target], desktop,
-                                                    WINDOW_EVENT_RESIZE, &ev);
+        dispatch_window_event(desktop, &desktop->windows[desktop->target], desktop->target,
+                              WINDOW_EVENT_RESIZE, &ev);
         desktop->state = STATE_NORMAL;
         set_status(desktop, "%d window(s)", desktop->window_count);
       } else if((ch == 'h' || ch == TW_KEY_LEFT) && desktop->ow > 1) --desktop->ow;
@@ -260,6 +241,8 @@ bool desktop_update(desktop_t* desktop) {
       else if((ch == 'k' || ch == TW_KEY_UP) && desktop->oh > 1) --desktop->oh;
       else if(ch == 'j' || ch == TW_KEY_DOWN) ++desktop->oh;
     }
+    if(desktop->after_key) desktop->after_key(desktop, ch);
+  skip_key:;
   }
   if(desktop->window_count > 0) {
     pthread_t* threads = calloc(desktop->window_count, sizeof(pthread_t));
@@ -279,10 +262,7 @@ bool desktop_update(desktop_t* desktop) {
 }
 void desktop_draw(desktop_t* desktop) {
   if(desktop->before_draw) desktop->before_draw(desktop);
-  tw_wh_t size = tw_get_size();
   tw_clear(0b01000000);
-  tw_fill(0, size.h - 1, size.w, 1, 0b01110000);
-  tw_puts(desktop->statustext, 0, size.h - 1, 0b01110000);
   if(desktop->window_count > 0) {
     pthread_t* threads = calloc(desktop->window_count, sizeof(pthread_t));
     window_thread_arg_t* args = calloc(desktop->window_count, sizeof(window_thread_arg_t));
@@ -295,7 +275,48 @@ void desktop_draw(desktop_t* desktop) {
     for(int i = desktop->window_count - 1; i >= 0; --i) pthread_join(threads[i], NULL);
     free(threads);
     free(args);
+    for(int i = desktop->window_count - 1; i >= 0; --i) {
+      window_t* window = &desktop->windows[i];
+      if(window->hidden) continue;
+      char title_attr =
+        (desktop->state == STATE_FOCUSED && desktop->target == i) ? 0b00100000 : 0b01100000;
+      int draww =
+        (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->ow : window->w;
+      int drawh =
+        (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->oh : window->h;
+      tw_fill(window->x, window->y, draww, 1, title_attr);
+      char tbuf[512];
+      int idx_len = snprintf(tbuf, sizeof(tbuf), "%d", i);
+      if(draww >= idx_len + 2)
+        snprintf(tbuf, sizeof(tbuf), "[%d] %s", i, window->title ? window->title : "");
+      else if(draww >= idx_len) snprintf(tbuf, sizeof(tbuf), "%d", i);
+      else if(draww > 0) {
+        snprintf(tbuf, sizeof(tbuf), "%d", i);
+        memmove(tbuf, tbuf + (idx_len - draww), draww + 1);
+      } else tbuf[0] = '\0';
+      if(draww > 0 && (int)strlen(tbuf) > draww) tbuf[draww] = '\0';
+      if(tbuf[0] != '\0') tw_printf(window->x, window->y, title_attr, "%s", tbuf);
+      if(!(desktop->state == STATE_RESIZING && desktop->target == i)) {
+        if(window->content) {
+          for(int j = 0; j < window->h; ++j) {
+            for(int k = 0; k < window->w; ++k) {
+              short c = window->content[j * window->w + k];
+              tw_putc(c & 255, window->x + k, window->y + j + 1, c >> 8);
+            }
+          }
+        }
+      } else tw_fill(window->x, window->y + 1, draww, drawh, 0);
+      if(desktop->after_window_draw) desktop->after_window_draw(desktop, window, i);
+    }
   }
+  if(desktop->before_draw_status_bar) desktop->before_draw_status_bar(desktop);
+  if(desktop->draw_status_bar) desktop->draw_status_bar(desktop);
+  else {
+    tw_wh_t size = tw_get_size();
+    tw_fill(0, size.h - 1, size.w, 1, 0b01110000);
+    tw_puts(desktop->statustext, 0, size.h - 1, 0b01110000);
+  }
+  // if(desktop->after_draw_status_bar) desktop->after_draw_status_bar(desktop);
   if(desktop->after_draw) desktop->after_draw(desktop);
 }
 
@@ -321,13 +342,13 @@ int main() {
     tw_flush();
     usleep(33333);
   }
-  for(int i = 0; i < desktop.window_count; ++i) {
-    if(desktop.windows[i].onevent) {
-      if(desktop.windows[i].onevent(&desktop.windows[i], &desktop, WINDOW_EVENT_CLOSE, NULL))
-        desktop.windows[i].onevent(&desktop.windows[i], &desktop, WINDOW_EVENT_CLOSE_FORCE, NULL);
-    }
+  for(int i = desktop.window_count - 1; i >= 0; --i) {
+    if(dispatch_window_event(&desktop, &desktop.windows[i], i, WINDOW_EVENT_CLOSE, NULL))
+      dispatch_window_event(&desktop, &desktop.windows[i], i, WINDOW_EVENT_CLOSE_FORCE, NULL);
+    if(desktop.windows[i].handle) dlclose(desktop.windows[i].handle);
   }
   if(desktop.windows) free(desktop.windows);
   if(desktop.statustext) free(desktop.statustext);
+  tw_deinit();
   return 0;
 }

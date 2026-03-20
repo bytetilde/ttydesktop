@@ -37,6 +37,9 @@ clean:
 run: $(BIN_DIR)/$(TARGET)
 	./$(BIN_DIR)/$(TARGET)
 
+valgrind: $(BIN_DIR)/$(TARGET)
+	valgrind --leak-check=full ./$(BIN_DIR)/$(TARGET)
+
 -include $(DEPS)
 
-.PHONY: all all-apps clean run
+.PHONY: all all-apps clean run valgrind

@@ -31,6 +31,7 @@ typedef struct window_t {
   void (*update)(window_t* window, desktop_t* desktop);
   void (*draw)(window_t* window, desktop_t* desktop);
   bool (*onevent)(window_t* window, desktop_t* desktop, int event, void* data);
+  void* handle;
 } window_t;
 typedef enum desktop_state_t {
   STATE_NORMAL,
@@ -61,4 +62,17 @@ typedef struct desktop_t {
   void (*before_window_draw)(desktop_t* desktop, window_t* window, int i);
   void (*after_window_draw)(desktop_t* desktop, window_t* window, int i);
   void (*after_draw)(desktop_t* desktop);
+  void (*on_status_change)(desktop_t* desktop, const char* new_status);
+  void (*before_draw_status_bar)(desktop_t* desktop);
+  void (*draw_status_bar)(desktop_t* desktop);
+  // void (*after_draw_status_bar)(desktop_t* desktop);
+  bool (*before_key)(desktop_t* desktop, int key);
+  bool (*on_key)(desktop_t* desktop, int key);
+  void (*after_key)(desktop_t* desktop, int key);
+  bool (*before_window_event)(desktop_t* desktop, window_t* window, int index, int event,
+                              void* data);
+  void (*after_window_event)(desktop_t* desktop, window_t* window, int index, int event,
+                             void* data);
+  void (*before_window_update)(desktop_t* desktop, window_t* window, int index);
+  void (*after_window_update)(desktop_t* desktop, window_t* window, int index);
 } desktop_t;
