@@ -28,7 +28,7 @@ void* window_draw_wrapper(void* arg) {
   if(desktop->before_window_draw) desktop->before_window_draw(desktop, window, i);
   if(window->draw) window->draw(window, desktop);
   char title_attr =
-    (desktop->state == STATE_FOCUSED && desktop->target == i) ? 0b00100000 : 0b00110000;
+    (desktop->state == STATE_FOCUSED && desktop->target == i) ? 0b00100000 : 0b01100000;
   int draww = (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->ow : window->w;
   int drawh = (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->oh : window->h;
   tw_fill(window->x, window->y, draww, 1, title_attr);

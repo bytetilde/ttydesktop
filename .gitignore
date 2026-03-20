@@ -1,3 +1,4 @@
 bin/
 obj/
+ignorepls/
 compile_commands.json
