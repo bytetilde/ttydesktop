@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void onevent(window_t* window, desktop_t* desktop, int event, void* data) {
+bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   (void)desktop;
   (void)data;
   if(event == WINDOW_EVENT_CLOSE) {
@@ -11,6 +11,7 @@ void onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   }
   if(event == WINDOW_EVENT_RESIZE)
     window->content = realloc(window->content, window->w * window->h * sizeof(short));
+  return false;
 }
 void update(window_t* window, desktop_t* desktop) {
   (void)desktop;

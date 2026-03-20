@@ -24,6 +24,7 @@ void* window_draw_wrapper(void* arg) {
   desktop_t* desktop = warg->desktop;
   window_t* window = warg->window;
   int i = warg->index;
+  if(window->hidden) return NULL;
   if(desktop->before_window_draw) desktop->before_window_draw(desktop, window, i);
   if(window->draw) window->draw(window, desktop);
   char title_attr =
@@ -110,33 +111,65 @@ bool desktop_update(desktop_t* desktop) {
           desktop->state = STATE_NORMAL;
         } else if(idx >= 0 && idx < desktop->window_count) {
           if(desktop->state == STATE_PROMPT_FOCUS) {
-            window_t target = desktop->windows[idx];
-            for(int i = idx; i > 0; --i) desktop->windows[i] = desktop->windows[i - 1];
-            desktop->windows[0] = target;
-            desktop->state = STATE_FOCUSED;
-            desktop->target = 0;
-            set_status(desktop, ":f %d (focused)", idx);
+            bool ignore = false;
+            if(desktop->windows[idx].onevent) {
+              ignore = desktop->windows[idx].onevent(&desktop->windows[idx], desktop,
+                                                     WINDOW_EVENT_FOCUS, NULL);
+            }
+            if(ignore) {
+              desktop->state = STATE_NORMAL;
+              set_status(desktop, "window ignored focus");
+            } else {
+              window_t target = desktop->windows[idx];
+              for(int i = idx; i > 0; --i) desktop->windows[i] = desktop->windows[i - 1];
+              desktop->windows[0] = target;
+              desktop->state = STATE_FOCUSED;
+              desktop->target = 0;
+              set_status(desktop, ":f %d (focused)", idx);
+            }
           } else if(desktop->state == STATE_PROMPT_MOVE) {
-            desktop->target = idx;
-            desktop->ox = desktop->windows[idx].x;
-            desktop->oy = desktop->windows[idx].y;
-            desktop->state = STATE_MOVING;
-            set_status(desktop, ":m %d (moving)", idx);
+            if(desktop->windows[idx].hidden) {
+              desktop->state = STATE_NORMAL;
+              set_status(desktop, "window is hidden");
+            } else if(desktop->windows[idx].unmovable) {
+              desktop->state = STATE_NORMAL;
+              set_status(desktop, "window is unmovable");
+            } else {
+              desktop->target = idx;
+              desktop->ox = desktop->windows[idx].x;
+              desktop->oy = desktop->windows[idx].y;
+              desktop->state = STATE_MOVING;
+              set_status(desktop, ":m %d (moving)", idx);
+            }
           } else if(desktop->state == STATE_PROMPT_RESIZE) {
-            desktop->target = idx;
-            desktop->ow = desktop->windows[idx].w;
-            desktop->oh = desktop->windows[idx].h;
-            desktop->state = STATE_RESIZING;
-            set_status(desktop, ":r %d (resizing)", idx);
+            if(desktop->windows[idx].hidden) {
+              desktop->state = STATE_NORMAL;
+              set_status(desktop, "window is hidden");
+            } else if(desktop->windows[idx].unresizable) {
+              desktop->state = STATE_NORMAL;
+              set_status(desktop, "window is unresizable");
+            } else {
+              desktop->target = idx;
+              desktop->ow = desktop->windows[idx].w;
+              desktop->oh = desktop->windows[idx].h;
+              desktop->state = STATE_RESIZING;
+              set_status(desktop, ":r %d (resizing)", idx);
+            }
           } else if(desktop->state == STATE_PROMPT_CLOSE) {
+            bool ignore = false;
             if(desktop->windows[idx].onevent)
-              desktop->windows[idx].onevent(&desktop->windows[idx], desktop, WINDOW_EVENT_CLOSE,
-                                            NULL);
-            for(int i = idx; i < desktop->window_count - 1; ++i)
-              desktop->windows[i] = desktop->windows[i + 1];
-            --desktop->window_count;
-            desktop->state = STATE_NORMAL;
-            set_status(desktop, "%d window(s)", desktop->window_count);
+              ignore = desktop->windows[idx].onevent(&desktop->windows[idx], desktop,
+                                                     WINDOW_EVENT_CLOSE, NULL);
+            if(ignore) {
+              desktop->state = STATE_NORMAL;
+              set_status(desktop, "window ignored close");
+            } else {
+              for(int i = idx; i < desktop->window_count - 1; ++i)
+                desktop->windows[i] = desktop->windows[i + 1];
+              --desktop->window_count;
+              desktop->state = STATE_NORMAL;
+              set_status(desktop, "%d window(s)", desktop->window_count);
+            }
           }
         } else {
           desktop->state = STATE_NORMAL;

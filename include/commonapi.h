@@ -24,9 +24,12 @@ typedef struct window_t {
   int x, y, w, h;
   char* title;
   short* content;
+  bool hidden;
+  bool unmovable;
+  bool unresizable;
   void (*update)(window_t* window, desktop_t* desktop);
   void (*draw)(window_t* window, desktop_t* desktop);
-  void (*onevent)(window_t* window, desktop_t* desktop, int event, void* data);
+  bool (*onevent)(window_t* window, desktop_t* desktop, int event, void* data);
 } window_t;
 typedef enum desktop_state_t {
   STATE_NORMAL,
