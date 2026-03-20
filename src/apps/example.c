@@ -10,13 +10,20 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     free(window->content);
   }
   if(event == WINDOW_EVENT_RESIZE) {
-    window->content = realloc(window->content, window->w * window->h * sizeof(short));
+    short* tmp = realloc(window->content, window->w * window->h * sizeof(short));
+    if(!tmp) {
+      free(window->content);
+      window->content = NULL;
+      return false;
+    }
+    window->content = tmp;
     for(int i = 0; i < window->w * window->h; ++i) window->content[i] = 'A' | (0b00001010 << 8);
   }
   return false;
 }
 void update(window_t* window, desktop_t* desktop) {
   (void)desktop;
+  if(!window->content) return;
   for(int j = 0; j < window->h; ++j) {
     for(int i = 0; i < window->w; ++i) {
       short c = window->content[j * window->w + i];

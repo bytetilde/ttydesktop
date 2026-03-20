@@ -55,6 +55,11 @@ void tw_init() {
   tw_w = sz.w;
   tw_h = sz.h;
   tw_buf = malloc(tw_w * tw_h * sizeof(uint16_t));
+  if(!tw_buf) {
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+    fprintf(stderr, "tw: out of memory\n");
+    exit(1);
+  }
   memset(tw_buf, 0, tw_w * tw_h * sizeof(uint16_t));
   signal(SIGWINCH, tw_sigwinch_handler);
   atexit(tw_deinit);
@@ -135,6 +140,7 @@ void tw_flush_region(int x, int y, int w, int h) {
       if(ptr > threshold) {
         tw_write_all(out, ptr);
         ptr = 0;
+        current_attr = -1;
       }
     }
   }
@@ -166,6 +172,7 @@ static int tw_decode_key() {
       while(isdigit(code)) {
         val = val * 10 + (code - '0');
         code = tw_read_raw();
+        if(code == -1) return TW_KEY_ESC;
       }
       if(code == 'A') return TW_KEY_UP;
       if(code == 'B') return TW_KEY_DOWN;

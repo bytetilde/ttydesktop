@@ -49,6 +49,10 @@ bool dispatch_window_event(desktop_t* desktop, window_t* window, int index, int 
   if(desktop->after_window_event) desktop->after_window_event(desktop, window, index, event, data);
   return ignore;
 }
+static void desktop_close_window(desktop_t* desktop, int index) {
+  if(index < 0 || index >= desktop->window_count) return;
+  desktop->windows[index].close_pending = true;
+}
 bool desktop_update(desktop_t* desktop) {
   if(desktop->before_update && desktop->before_update(desktop)) return true;
   int ch = tw_getch();
@@ -91,28 +95,43 @@ bool desktop_update(desktop_t* desktop) {
         if(desktop->state == STATE_PROMPT_OPEN) {
           void* handle = dlopen(desktop->buf, RTLD_NOW | RTLD_LOCAL);
           if(handle) {
-            void (*init_fn)(window_t*) = dlsym(handle, "window_init");
-            if(init_fn) {
-              if(desktop->window_count >= desktop->window_capacity) {
-                desktop->window_capacity =
-                  desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
-                desktop->windows =
-                  realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
+            if(desktop->window_count >= desktop->window_capacity) {
+              desktop->window_capacity =
+                desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
+              window_t* new_windows =
+                realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
+              if(!new_windows) {
+                set_status(desktop, "out of memory");
+                desktop->state = STATE_NORMAL;
+                dlclose(handle);
+                goto skip_open;
               }
-              window_t* w = &desktop->windows[desktop->window_count];
-              memset(w, 0, sizeof(window_t));
-              w->handle = handle;
-              init_fn(w);
-              ++desktop->window_count;
-              dispatch_window_event(desktop, w, desktop->window_count - 1, WINDOW_EVENT_OPEN, NULL);
-              set_status(desktop, "opened %s", desktop->buf);
-            } else {
+              desktop->windows = new_windows;
+            }
+            memmove(&desktop->windows[1], &desktop->windows[0],
+                    sizeof(window_t) * desktop->window_count);
+            window_t* w = &desktop->windows[0];
+            memset(w, 0, sizeof(window_t));
+            w->handle = handle;
+            dlerror();
+            void (*init_fn)(window_t*) = NULL;
+            *(void**)(&init_fn) = dlsym(handle, "window_init");
+            if(dlerror() || !init_fn) {
+              memmove(&desktop->windows[0], &desktop->windows[1],
+                      sizeof(window_t) * desktop->window_count);
               set_status(desktop, "failed to find window_init");
               dlclose(handle);
+              desktop->state = STATE_NORMAL;
+              goto skip_open;
             }
+            init_fn(w);
+            ++desktop->window_count;
+            dispatch_window_event(desktop, w, 0, WINDOW_EVENT_OPEN, NULL);
+            set_status(desktop, "opened %s", desktop->buf);
           } else {
-            set_status(desktop, "failed to load %s", desktop->buf);
+            set_status(desktop, "failed to load %s: %s", desktop->buf, dlerror());
           }
+        skip_open:
           desktop->state = STATE_NORMAL;
         } else if(idx >= 0 && idx < desktop->window_count) {
           if(desktop->state == STATE_PROMPT_FOCUS) {
@@ -164,6 +183,7 @@ bool desktop_update(desktop_t* desktop) {
               desktop->state = STATE_NORMAL;
               set_status(desktop, "window ignored close");
             } else {
+              if(desktop->windows[idx].handle) dlclose(desktop->windows[idx].handle);
               for(int i = idx; i < desktop->window_count - 1; ++i)
                 desktop->windows[i] = desktop->windows[i + 1];
               --desktop->window_count;
@@ -247,15 +267,25 @@ bool desktop_update(desktop_t* desktop) {
   if(desktop->window_count > 0) {
     pthread_t* threads = calloc(desktop->window_count, sizeof(pthread_t));
     window_thread_arg_t* args = calloc(desktop->window_count, sizeof(window_thread_arg_t));
-    for(int i = 0; i < desktop->window_count; ++i) {
-      args[i].window = &desktop->windows[i];
-      args[i].desktop = desktop;
-      args[i].index = i;
-      pthread_create(&threads[i], NULL, window_update_wrapper, &args[i]);
+    if(threads && args) {
+      for(int i = 0; i < desktop->window_count; ++i) {
+        args[i].window = &desktop->windows[i];
+        args[i].desktop = desktop;
+        args[i].index = i;
+        if(pthread_create(&threads[i], NULL, window_update_wrapper, &args[i]) != 0) threads[i] = 0;
+      }
+      for(int i = 0; i < desktop->window_count; ++i)
+        if(threads[i]) pthread_join(threads[i], NULL);
     }
-    for(int i = 0; i < desktop->window_count; ++i) pthread_join(threads[i], NULL);
     free(threads);
     free(args);
+    for(int i = desktop->window_count - 1; i >= 0; --i) {
+      if(!desktop->windows[i].close_pending) continue;
+      dispatch_window_event(desktop, &desktop->windows[i], i, WINDOW_EVENT_CLOSE, NULL);
+      if(desktop->windows[i].handle) dlclose(desktop->windows[i].handle);
+      for(int j = i; j < desktop->window_count - 1; ++j) desktop->windows[j] = desktop->windows[j + 1];
+      --desktop->window_count;
+    }
   }
   if(desktop->after_update && desktop->after_update(desktop)) return true;
   return false;
@@ -266,13 +296,16 @@ void desktop_draw(desktop_t* desktop) {
   if(desktop->window_count > 0) {
     pthread_t* threads = calloc(desktop->window_count, sizeof(pthread_t));
     window_thread_arg_t* args = calloc(desktop->window_count, sizeof(window_thread_arg_t));
-    for(int i = desktop->window_count - 1; i >= 0; --i) {
-      args[i].window = &desktop->windows[i];
-      args[i].desktop = desktop;
-      args[i].index = i;
-      pthread_create(&threads[i], NULL, window_draw_wrapper, &args[i]);
+    if(threads && args) {
+      for(int i = desktop->window_count - 1; i >= 0; --i) {
+        args[i].window = &desktop->windows[i];
+        args[i].desktop = desktop;
+        args[i].index = i;
+        if(pthread_create(&threads[i], NULL, window_draw_wrapper, &args[i]) != 0) threads[i] = 0;
+      }
+      for(int i = desktop->window_count - 1; i >= 0; --i)
+        if(threads[i]) pthread_join(threads[i], NULL);
     }
-    for(int i = desktop->window_count - 1; i >= 0; --i) pthread_join(threads[i], NULL);
     free(threads);
     free(args);
     for(int i = desktop->window_count - 1; i >= 0; --i) {
@@ -326,6 +359,7 @@ int main() {
     .windows = NULL,
     .window_count = 0,
     .window_capacity = 0,
+    .close_window = desktop_close_window,
     .before_update = NULL,
     .update = desktop_update,
     .after_update = NULL,

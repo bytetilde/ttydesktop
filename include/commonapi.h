@@ -28,6 +28,7 @@ typedef struct window_t {
   bool hidden;
   bool unmovable;
   bool unresizable;
+  bool close_pending;
   void (*update)(window_t* window, desktop_t* desktop);
   void (*draw)(window_t* window, desktop_t* desktop);
   bool (*onevent)(window_t* window, desktop_t* desktop, int event, void* data);
@@ -75,4 +76,5 @@ typedef struct desktop_t {
                              void* data);
   void (*before_window_update)(desktop_t* desktop, window_t* window, int index);
   void (*after_window_update)(desktop_t* desktop, window_t* window, int index);
+  void (*close_window)(desktop_t* desktop, int index);
 } desktop_t;
