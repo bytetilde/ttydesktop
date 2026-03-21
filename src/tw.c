@@ -12,8 +12,8 @@
 #include <unistd.h>
 
 static struct termios orig_termios;
-static int tw_w = 0, tw_h = 0;
-static uint16_t* tw_buf = NULL;
+int tw_w = 0, tw_h = 0;
+uint16_t* tw_buf = NULL;
 static bool tw_keys[2048] = {0};
 static int tw_peek_buf = -1;
 static volatile sig_atomic_t tw_resized = 0;

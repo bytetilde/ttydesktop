@@ -2,6 +2,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+extern int tw_w, tw_h;
+extern uint16_t* tw_buf;
+
 typedef struct tw_wh_t {
   int w, h;
 } tw_wh_t;

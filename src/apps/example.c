@@ -17,25 +17,17 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
       return false;
     }
     window->content = tmp;
-    for(int i = 0; i < window->w * window->h; ++i) window->content[i] = 'A' | (0b00001010 << 8);
+    memset(window->content, 0, window->w * window->h * sizeof(short));
   }
   return false;
 }
 void update(window_t* window, desktop_t* desktop) {
+  (void)window;
   (void)desktop;
-  if(!window->content) return;
-  for(int j = 0; j < window->h; ++j) {
-    for(int i = 0; i < window->w; ++i) {
-      short c = window->content[j * window->w + i];
-      short attr = c >> 8;
-      attr = (attr + 1) % 256;
-      window->content[j * window->w + i] = (c & 255) | (attr << 8);
-    }
-  }
 }
 void draw(window_t* window, desktop_t* desktop) {
-  (void)desktop;
   (void)window;
+  (void)desktop;
 }
 
 void window_init(window_t* win) {
@@ -43,9 +35,8 @@ void window_init(window_t* win) {
   win->y = 0;
   win->w = 20;
   win->h = 10;
-  win->title = strdup("example app");
+  win->title = strdup("example");
   win->content = calloc(win->w * win->h, sizeof(short));
-  for(int i = 0; i < win->w * win->h; ++i) win->content[i] = 'A' | (0b00001010 << 8);
   win->update = update;
   win->draw = draw;
   win->onevent = onevent;
