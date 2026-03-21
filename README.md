@@ -18,6 +18,7 @@ prerequisites:
 * by default clang+lld, can change in makefile
 * pthreads
 * libdl
+
 then, to build everything: `make` (or `make all`)
 
 resulting binaries and .so's (apps) go in `bin/`
@@ -60,6 +61,7 @@ one path to an `.so` per line, `#` for comments
 
 ## hookman
 hook points for window updates, draws, events, etc. (before, after, and override)
+
 also has export/unexport/call for cross-app function calling
 
 ## license
