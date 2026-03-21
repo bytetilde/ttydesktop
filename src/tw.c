@@ -18,6 +18,7 @@
 #include "../include/tw.h"
 #include <ctype.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -29,6 +30,7 @@
 #include <unistd.h>
 
 static struct termios orig_termios;
+static pthread_mutex_t tw_mutex = PTHREAD_MUTEX_INITIALIZER;
 int tw_w = 0, tw_h = 0;
 uint16_t* tw_buf = NULL;
 static bool tw_keys[2048] = {0};
@@ -90,16 +92,25 @@ void tw_deinit() {
   free(tw_buf);
   tw_buf = NULL;
 }
-void tw_putc(char c, int x, int y, char attr) {
+static inline void _tw_putc(char c, int x, int y, char attr) {
   if(x < 0 || x >= tw_w || y < 0 || y >= tw_h) return;
   tw_buf[y * tw_w + x] = ((uint16_t)(uint8_t)attr << 8) | (uint8_t)c;
 }
+void tw_putc(char c, int x, int y, char attr) {
+  pthread_mutex_lock(&tw_mutex);
+  _tw_putc(c, x, y, attr);
+  pthread_mutex_unlock(&tw_mutex);
+}
 void tw_puts(const char* s, int x, int y, char attr) {
-  while(*s) tw_putc(*s++, x++, y, attr);
+  pthread_mutex_lock(&tw_mutex);
+  while(*s) _tw_putc(*s++, x++, y, attr);
+  pthread_mutex_unlock(&tw_mutex);
 }
 void tw_fill(int x, int y, int w, int h, char attr) {
+  pthread_mutex_lock(&tw_mutex);
   for(int i = y; i < y + h; i++)
-    for(int j = x; j < x + w; j++) tw_putc(' ', j, i, attr);
+    for(int j = x; j < x + w; j++) _tw_putc(' ', j, i, attr);
+  pthread_mutex_unlock(&tw_mutex);
 }
 void tw_printf(int x, int y, char attr, const char* fmt, ...) {
   char buf[1024];
@@ -110,8 +121,10 @@ void tw_printf(int x, int y, char attr, const char* fmt, ...) {
   tw_puts(buf, x, y, attr);
 }
 void tw_clear(char attr) {
+  pthread_mutex_lock(&tw_mutex);
   uint16_t val = ((uint16_t)(uint8_t)attr << 8) | (uint8_t)' ';
   for(int i = 0; i < tw_w * tw_h; i++) tw_buf[i] = val;
+  pthread_mutex_unlock(&tw_mutex);
 }
 static void tw_write_all(const char* buf, int len) {
   while(len > 0) {
@@ -122,6 +135,7 @@ static void tw_write_all(const char* buf, int len) {
   }
 }
 void tw_flush_region(int x, int y, int w, int h) {
+  pthread_mutex_lock(&tw_mutex);
   tw_check_resize();
   if(x < 0) {
     w += x;
@@ -163,6 +177,7 @@ void tw_flush_region(int x, int y, int w, int h) {
   }
   ptr += snprintf(out + ptr, sizeof(out) - ptr, "\033[0m");
   if(ptr > 0) tw_write_all(out, ptr);
+  pthread_mutex_unlock(&tw_mutex);
 }
 void tw_flush() {
   tw_flush_region(0, 0, tw_w, tw_h);
