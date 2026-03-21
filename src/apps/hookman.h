@@ -223,6 +223,14 @@ static inline void hookman_unexport(hookman_t* hm, const char* name) {
   hm_remove(hm->exports, key);
   pthread_mutex_unlock(&hm->lock);
 }
+static inline bool hookman_is_exported(hookman_t* hm, const char* name) {
+  if(!hm) return false;
+  unsigned long long key = hash(name);
+  pthread_mutex_lock(&hm->lock);
+  bool exported = hm_get(hm->exports, key) != NULL;
+  pthread_mutex_unlock(&hm->lock);
+  return exported;
+}
 static inline void* hookman_call(hookman_t* hm, const char* name, void* data) {
   if(!hm) return NULL;
   unsigned long long key = hash(name);
