@@ -5,9 +5,11 @@ a desktop environment window manager-like thing that runs in the terminal
 * dynamic app loading with libdl
 * opening, closing, moving, resizing, focusing windows (a shocker)
 * windows also have events
-* half-baked multithreading
+* still half-baked multithreading
 * a bar at the bottom which is a status bar but also isnt a status bar
 * i hate ncurses
+* hookman: a meta-app that lets other apps hook into almost anything
+* hookman also has function exports so one app can call functions of other app and. yeah
 
 ## building
 prerequisites:
@@ -35,6 +37,12 @@ this is kinda a state machine
 * focused - when a window is focused
 * * all key events are sent to the focused window
 * * except esc, that one unfocuses
+
+## hookman
+this one is new
+
+hook points for window updates, draws, events, etc. (before, after, and override)
+also has export/unexport/call for cross-app function calling
 
 ## license
 GPLv3

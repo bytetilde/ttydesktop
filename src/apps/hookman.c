@@ -20,6 +20,7 @@
 #include "tw.h"
 #include <dlfcn.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -558,6 +559,7 @@ void window_init(desktop_t* desktop, window_t* win) {
   hm->hooks = hm_create(16);
   hm->hooks_before = hm_create(16);
   hm->hooks_after = hm_create(16);
+  hm->exports = hm_create(16);
   hm->orig_desktop_update = desktop->update;
   hm->orig_desktop_draw = desktop->draw;
   hm->orig_dispatch_window_event = desktop->dispatch_window_event;

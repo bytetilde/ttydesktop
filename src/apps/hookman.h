@@ -138,6 +138,7 @@ typedef struct hookman_t {
   hashmap_t* hooks;
   hashmap_t* hooks_before;
   hashmap_t* hooks_after;
+  hashmap_t* exports;
   bool (*orig_desktop_update)(desktop_t* desktop);
   void (*orig_desktop_draw)(desktop_t* desktop);
   bool (*orig_dispatch_window_event)(desktop_t* desktop, window_t* window, int event, void* data);
@@ -206,4 +207,28 @@ static inline void hookman_detach_all(hookman_t* hm, const char* name) {
     }
   }
   pthread_mutex_unlock(&hm->lock);
+}
+
+static inline void hookman_export(hookman_t* hm, const char* name, void* func) {
+  if(!hm) return;
+  unsigned long long key = hash(name);
+  pthread_mutex_lock(&hm->lock);
+  hm_insert(hm->exports, key, func);
+  pthread_mutex_unlock(&hm->lock);
+}
+static inline void hookman_unexport(hookman_t* hm, const char* name) {
+  if(!hm) return;
+  unsigned long long key = hash(name);
+  pthread_mutex_lock(&hm->lock);
+  hm_remove(hm->exports, key);
+  pthread_mutex_unlock(&hm->lock);
+}
+static inline void* hookman_call(hookman_t* hm, const char* name, void* data) {
+  if(!hm) return NULL;
+  unsigned long long key = hash(name);
+  pthread_mutex_lock(&hm->lock);
+  void* func = hm_get(hm->exports, key);
+  pthread_mutex_unlock(&hm->lock);
+  if(!func) return NULL;
+  return ((void* (*)(void*))func)(data);
 }
