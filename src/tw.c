@@ -160,48 +160,79 @@ static int tw_read_raw() {
   if(read(STDIN_FILENO, &c, 1) == 1) return c;
   return -1;
 }
+static int tw_read_timeout(int timeout_ms) {
+  struct pollfd fds = {STDIN_FILENO, POLLIN, 0};
+  if(poll(&fds, 1, timeout_ms) <= 0) return -1;
+  return tw_read_raw();
+}
 static int tw_decode_key() {
   int c = tw_read_raw();
+  if(c == -1) return -1;
   if(c == 27) { // ESC
-    struct pollfd fds = {STDIN_FILENO, POLLIN, 0};
-    if(poll(&fds, 1, 50) <= 0) return TW_KEY_ESC;
-    int next = tw_read_raw();
+    int next = tw_read_timeout(50);
+    if(next == -1) return TW_KEY_ESC;
     if(next == '[') {
-      int val = 0;
-      int code = tw_read_raw();
-      while(isdigit(code)) {
-        val = val * 10 + (code - '0');
-        code = tw_read_raw();
-        if(code == -1) return TW_KEY_ESC;
+      int params[4] = {0, 0, 0, 0};
+      int p_idx = 0;
+      int code = tw_read_timeout(10);
+      while(isdigit(code) || code == ';') {
+        if(code == ';') {
+          if(p_idx < 3) ++p_idx;
+        } else params[p_idx] = params[p_idx] * 10 + (code - '0');
+        code = tw_read_timeout(10);
       }
-      if(code == 'A') return TW_KEY_UP;
-      if(code == 'B') return TW_KEY_DOWN;
-      if(code == 'C') return TW_KEY_RIGHT;
-      if(code == 'D') return TW_KEY_LEFT;
-      if(code == 'Z') return TW_KEY_TAB | TW_MOD_SHIFT;
-      if(code == '~') {
-        // TODO buh
+      int modifiers = 0;
+      int m_val = (p_idx > 0) ? params[1] : 0;
+      if(m_val == 2) modifiers |= TW_MOD_SHIFT;
+      if(m_val == 3) modifiers |= TW_MOD_ALT;
+      if(m_val == 5) modifiers |= TW_MOD_CTRL;
+      switch(code) {
+        case 'A': return TW_KEY_UP | modifiers;
+        case 'B': return TW_KEY_DOWN | modifiers;
+        case 'C': return TW_KEY_RIGHT | modifiers;
+        case 'D': return TW_KEY_LEFT | modifiers;
+        case 'H': return TW_KEY_HOME | modifiers;
+        case 'F': return TW_KEY_END | modifiers;
+        case 'Z': return TW_KEY_TAB | TW_MOD_SHIFT;
+        case '~':
+          switch(params[0]) {
+            case 1:
+            case 7: return TW_KEY_HOME | modifiers;
+            case 4:
+            case 8: return TW_KEY_END | modifiers;
+            case 2: return TW_KEY_INSERT | modifiers;
+            case 3: return TW_KEY_DELETE | modifiers;
+            case 5: return TW_KEY_PAGE_UP | modifiers;
+            case 6: return TW_KEY_PAGE_DOWN | modifiers;
+            default:
+              if(params[0] >= 11 && params[0] <= 15)
+                return (TW_KEY_F1 + (params[0] - 11)) | modifiers;
+              if(params[0] >= 17 && params[0] <= 21)
+                return (TW_KEY_F6 + (params[0] - 17)) | modifiers;
+              if(params[0] >= 23 && params[0] <= 24)
+                return (TW_KEY_F11 + (params[0] - 23)) | modifiers;
+          }
+          break;
       }
-      if(code == ';') {
-        int mod = tw_read_raw();
-        int real_code = tw_read_raw();
-        int modifiers = 0;
-        if(mod == '2') modifiers |= TW_MOD_SHIFT;
-        if(mod == '3') modifiers |= TW_MOD_ALT;
-        if(mod == '5') modifiers |= TW_MOD_CTRL;
-        if(real_code == 'A') return TW_KEY_UP | modifiers;
-        if(real_code == 'B') return TW_KEY_DOWN | modifiers;
-        if(real_code == 'C') return TW_KEY_RIGHT | modifiers;
-        if(real_code == 'D') return TW_KEY_LEFT | modifiers;
-      }
-    } else {
-      return next | TW_MOD_ALT;
-    }
+    } else if(next == 'O') {
+      int code = tw_read_timeout(10);
+      if(code >= 'P' && code <= 'S') return TW_KEY_F1 + (code - 'P');
+    } else return next | TW_MOD_ALT;
+    return TW_KEY_ESC;
   }
-  if(c == 13) return TW_KEY_ENTER;
-  if(c == 127) return TW_KEY_BACKSPACE;
+  if(c == 13 || c == 10) return TW_KEY_ENTER;
+  if(c == 127 || c == 8) return TW_KEY_BACKSPACE;
   if(c == 9) return TW_KEY_TAB;
-  if(c > 0 && c < 27) return (c + 'a' - 1) | TW_MOD_CTRL;
+  if(c >= 0xC0) {
+    int len = (c >= 0xF0) ? 4 : (c >= 0xE0) ? 3 : 2;
+    int full_char = c;
+    for(int i = 1; i < len; ++i) {
+      int next = tw_read_timeout(10);
+      if(next != -1) full_char = (full_char << 8) | next;
+    }
+    return full_char;
+  }
+  if(c > 0 && c < 27 && c != 9 && c != 10 && c != 13 && c != 27) return (c + 'a' - 1) | TW_MOD_CTRL;
   return c;
 }
 int tw_getch() {
