@@ -121,31 +121,36 @@ static bool desktop_update(desktop_t* desktop) {
         desktop->buf[0] = '\0';
         if(ch == 'f') {
           desktop->state = STATE_PROMPT_FOCUS;
-          hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_FOCUS};
+          hook_payload_t spayload = {
+            .desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_FOCUS};
           call_hooks_after(&spayload, "desktop_state_change");
           set_status(desktop, ":f ");
         }
         if(ch == 'm') {
           desktop->state = STATE_PROMPT_MOVE;
-          hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_MOVE};
+          hook_payload_t spayload = {
+            .desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_MOVE};
           call_hooks_after(&spayload, "desktop_state_change");
           set_status(desktop, ":m ");
         }
         if(ch == 'r') {
           desktop->state = STATE_PROMPT_RESIZE;
-          hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_RESIZE};
+          hook_payload_t spayload = {
+            .desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_RESIZE};
           call_hooks_after(&spayload, "desktop_state_change");
           set_status(desktop, ":r ");
         }
         if(ch == 'c') {
           desktop->state = STATE_PROMPT_CLOSE;
-          hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_CLOSE};
+          hook_payload_t spayload = {
+            .desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_CLOSE};
           call_hooks_after(&spayload, "desktop_state_change");
           set_status(desktop, ":c ");
         }
         if(ch == 'o') {
           desktop->state = STATE_PROMPT_OPEN;
-          hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_OPEN};
+          hook_payload_t spayload = {
+            .desktop = desktop, .window = NULL, .data = (void*)STATE_PROMPT_OPEN};
           call_hooks_after(&spayload, "desktop_state_change");
           set_status(desktop, ":o ");
         }
@@ -162,7 +167,8 @@ static bool desktop_update(desktop_t* desktop) {
           hook_payload_t opayload = {.desktop = desktop, .window = NULL, .data = desktop->buf};
           if(call_hooks_before(&opayload, "window_open_request")) {
             desktop->state = STATE_NORMAL;
-            hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+            hook_payload_t spayload = {
+              .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
             call_hooks_after(&spayload, "desktop_state_change");
             goto skip_open;
           }
@@ -176,7 +182,8 @@ static bool desktop_update(desktop_t* desktop) {
               if(!new_windows) {
                 set_status(desktop, "out of memory");
                 desktop->state = STATE_NORMAL;
-                hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+                hook_payload_t spayload = {
+                  .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
                 call_hooks_after(&spayload, "desktop_state_change");
                 dlclose(handle);
                 goto skip_open;
@@ -197,7 +204,8 @@ static bool desktop_update(desktop_t* desktop) {
               set_status(desktop, "failed to find window_init");
               dlclose(handle);
               desktop->state = STATE_NORMAL;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
               call_hooks_after(&spayload, "desktop_state_change");
               goto skip_open;
             }
@@ -210,7 +218,8 @@ static bool desktop_update(desktop_t* desktop) {
           }
         skip_open:
           desktop->state = STATE_NORMAL;
-          hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+          hook_payload_t spayload = {
+            .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
           call_hooks_after(&spayload, "desktop_state_change");
         } else if(idx >= 0 && idx < desktop->window_count) {
           if(desktop->state == STATE_PROMPT_FOCUS) {
@@ -224,7 +233,8 @@ static bool desktop_update(desktop_t* desktop) {
               for(int i = idx; i > 0; --i) desktop->windows[i] = desktop->windows[i - 1];
               desktop->windows[0] = target;
               desktop->state = STATE_FOCUSED;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_FOCUSED};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_FOCUSED};
               call_hooks_after(&spayload, "desktop_state_change");
               desktop->target = 0;
               set_status(desktop, ":f %d (focused)", idx);
@@ -232,12 +242,14 @@ static bool desktop_update(desktop_t* desktop) {
           } else if(desktop->state == STATE_PROMPT_MOVE) {
             if(desktop->windows[idx].hidden) {
               desktop->state = STATE_NORMAL;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
               call_hooks_after(&spayload, "desktop_state_change");
               set_status(desktop, "window is hidden");
             } else if(desktop->windows[idx].unmovable) {
               desktop->state = STATE_NORMAL;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
               call_hooks_after(&spayload, "desktop_state_change");
               set_status(desktop, "window is unmovable");
             } else {
@@ -245,19 +257,22 @@ static bool desktop_update(desktop_t* desktop) {
               desktop->ox = desktop->windows[idx].x;
               desktop->oy = desktop->windows[idx].y;
               desktop->state = STATE_MOVING;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_MOVING};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_MOVING};
               call_hooks_after(&spayload, "desktop_state_change");
               set_status(desktop, ":m %d (moving)", idx);
             }
           } else if(desktop->state == STATE_PROMPT_RESIZE) {
             if(desktop->windows[idx].hidden) {
               desktop->state = STATE_NORMAL;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
               call_hooks_after(&spayload, "desktop_state_change");
               set_status(desktop, "window is hidden");
             } else if(desktop->windows[idx].unresizable) {
               desktop->state = STATE_NORMAL;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
               call_hooks_after(&spayload, "desktop_state_change");
               set_status(desktop, "window is unresizable");
             } else {
@@ -265,7 +280,8 @@ static bool desktop_update(desktop_t* desktop) {
               desktop->ow = desktop->windows[idx].w;
               desktop->oh = desktop->windows[idx].h;
               desktop->state = STATE_RESIZING;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_RESIZING};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_RESIZING};
               call_hooks_after(&spayload, "desktop_state_change");
               set_status(desktop, ":r %d (resizing)", idx);
             }
@@ -281,7 +297,8 @@ static bool desktop_update(desktop_t* desktop) {
                 desktop->windows[i] = desktop->windows[i + 1];
               --desktop->window_count;
               desktop->state = STATE_NORMAL;
-              hook_payload_t spayload = {.desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+              hook_payload_t spayload = {
+                .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
               call_hooks_after(&spayload, "desktop_state_change");
               set_status(desktop, "%d window(s)", desktop->window_count);
             }
@@ -339,7 +356,8 @@ static bool desktop_update(desktop_t* desktop) {
       else if(ch == 'l' || ch == TW_KEY_RIGHT) ++desktop->windows[desktop->target].x;
       else if(ch == 'k' || ch == TW_KEY_UP) --desktop->windows[desktop->target].y;
       else if(ch == 'j' || ch == TW_KEY_DOWN) ++desktop->windows[desktop->target].y;
-      hook_payload_t prpayload = {.desktop = desktop, .window = &desktop->windows[desktop->target], .data = (void*)(long)ch};
+      hook_payload_t prpayload = {
+        .desktop = desktop, .window = &desktop->windows[desktop->target], .data = (void*)(long)ch};
       call_hooks_after(&prpayload, "window_move_preview");
     } else if(desktop->state == STATE_RESIZING) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
@@ -360,7 +378,8 @@ static bool desktop_update(desktop_t* desktop) {
       else if(ch == 'l' || ch == TW_KEY_RIGHT) ++desktop->ow;
       else if((ch == 'k' || ch == TW_KEY_UP) && desktop->oh > 1) --desktop->oh;
       else if(ch == 'j' || ch == TW_KEY_DOWN) ++desktop->oh;
-      hook_payload_t prpayload = {.desktop = desktop, .window = &desktop->windows[desktop->target], .data = (void*)(long)ch};
+      hook_payload_t prpayload = {
+        .desktop = desktop, .window = &desktop->windows[desktop->target], .data = (void*)(long)ch};
       call_hooks_after(&prpayload, "window_resize_preview");
     }
   skip_key:
@@ -433,8 +452,7 @@ static void desktop_draw(desktop_t* desktop) {
         int drawh =
           (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->oh : window->h;
         hook_payload_t tpayload = {.desktop = desktop, .window = window, .data = (void*)(long)i};
-        if(call_hooks_before(&tpayload, "desktop_window_title"))
-          goto skip_title;
+        if(call_hooks_before(&tpayload, "desktop_window_title")) goto skip_title;
         else if(call_hooks(&tpayload, "desktop_window_title"))
           ;
         else {
@@ -501,11 +519,6 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   (void)desktop;
   (void)data;
   if(event == WINDOW_EVENT_CLOSE) {
-    if(!window->hidden) {
-      window->hidden = true;
-      return true;
-    }
-  } else if(event == WINDOW_EVENT_CLOSE_FORCE || (event == WINDOW_EVENT_CLOSE && window->hidden)) {
     if(desktop->update == desktop_update) desktop->update = hookman->orig_desktop_update;
     if(desktop->draw == desktop_draw) desktop->draw = hookman->orig_desktop_draw;
     if(desktop->dispatch_window_event == dispatch_window_event)
@@ -532,24 +545,16 @@ void update(window_t* window, desktop_t* desktop) {
   }
 }
 void draw(window_t* window, desktop_t* desktop) {
+  (void)window;
   (void)desktop;
-  const char* msg = "hookman active";
-  for(int i = 0; i < (int)strlen(msg) && i < window->w; ++i)
-    window->content[i] = msg[i] | (0b01110000 << 8);
 }
 void window_init(desktop_t* desktop, window_t* win) {
   (void)desktop;
+  win->hidden = true;
   if(hookman) {
     win->close_pending = 1;
-    win->hidden = true;
     return;
   }
-  win->x = 0;
-  win->y = 0;
-  win->w = 14;
-  win->h = 1;
-  win->title = strdup("hookman");
-  win->content = calloc(win->w * win->h, sizeof(short));
   win->update = update;
   win->draw = draw;
   win->onevent = onevent;
