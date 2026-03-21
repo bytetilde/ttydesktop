@@ -50,6 +50,7 @@ typedef struct window_t {
   void (*draw)(window_t* window, desktop_t* desktop);
   bool (*onevent)(window_t* window, desktop_t* desktop, int event, void* data);
   void* handle;
+  void* data;
 } window_t;
 typedef enum desktop_state_t {
   STATE_NORMAL,

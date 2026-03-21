@@ -27,12 +27,12 @@ typedef struct {
   int self_index;
 } bouncy_state_t;
 bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
-  bouncy_state_t* s = window->handle;
+  bouncy_state_t* s = window->data;
   if(event == WINDOW_EVENT_CLOSE) {
     free(window->title);
     free(window->content);
     free(s);
-    window->handle = NULL;
+    window->data = NULL;
     return false;
   }
   if(event == WINDOW_EVENT_RESIZE) {
@@ -52,7 +52,7 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
 void update(window_t* window, desktop_t* desktop) {
   (void)desktop;
   if(!window->content) return;
-  bouncy_state_t* s = window->handle;
+  bouncy_state_t* s = window->data;
   s->fskip = (s->fskip + 1) % 4;
   if(s->fskip) return;
   if(s->bx + s->bvx < 0 || s->bx + s->bvx >= window->w) s->bvx = -s->bvx;
@@ -63,7 +63,7 @@ void update(window_t* window, desktop_t* desktop) {
 void draw(window_t* window, desktop_t* desktop) {
   (void)desktop;
   if(!window->content) return;
-  bouncy_state_t* s = window->handle;
+  bouncy_state_t* s = window->data;
   for(int i = 0; i < window->w * window->h; ++i) window->content[i] = ' ' | (0b01110000 << 8);
   window->content[s->by * window->w + s->bx] = 'O' | (0b00001010 << 8);
 }
@@ -79,7 +79,7 @@ void window_init(window_t* win) {
   win->title = strdup("bouncy ball?");
   win->content = calloc(win->w * win->h, sizeof(short));
   for(int i = 0; i < win->w * win->h; ++i) win->content[i] = ' ' | (0b01110000 << 8);
-  win->handle = s;
+  win->data = s;
   win->update = update;
   win->draw = draw;
   win->onevent = onevent;
