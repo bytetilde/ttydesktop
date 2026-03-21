@@ -1,3 +1,20 @@
+/**
+ * Copyright (C) 2026 bytetilde
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "commonapi.h"
 #include "tw.h"
 #include <dlfcn.h>
@@ -355,7 +372,11 @@ void desktop_draw(desktop_t* desktop) {
 }
 
 int main() {
-  tw_init();
+  printf("ttydesktop  Copyrighn't (C) 2026  bytetilde\n");
+  printf("This program comes with ABSOLUTELY NO WARRANTY; for details see the GNU General Public "
+         "License (version 3).\n");
+  printf("This is free software, and you are welcome to redistribute it\n");
+  printf("under the terms of the GNU General Public License (version 3).\n");
   desktop_t desktop = {
     .windows = NULL,
     .window_count = 0,
@@ -371,6 +392,7 @@ int main() {
   };
   desktop.statustext = calloc(256, sizeof(char));
   snprintf(desktop.statustext, 256, "hello tty desktop");
+  tw_init();
   while(1) {
     if(desktop.update(&desktop)) break;
     desktop.draw(&desktop);

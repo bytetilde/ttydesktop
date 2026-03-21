@@ -1,6 +1,6 @@
 CC := clang
 CFLAGS := -Wall -Wextra -Iinclude -MMD -MP -fPIC -pthread -march=silvermont -mtune=silvermont -O3 -flto=full
-LDFLAGS := -fuse-ld=lld -pthread -ldl -rdynamic -static -flto=full -s
+LDFLAGS := -fuse-ld=lld -pthread -ldl -rdynamic -flto=full -s
 
 TARGET := ttydesktop
 
@@ -16,7 +16,8 @@ DEPS := $(OBJECTS:.o=.d)
 APP_SOURCES := $(wildcard $(APP_DIR)/*.c)
 APP_TARGETS := $(APP_SOURCES:$(APP_DIR)/%.c=$(BIN_DIR)/%.so)
 
-all: $(BIN_DIR)/$(TARGET) all-apps
+all: all-desktop all-apps
+all-desktop: $(BIN_DIR)/$(TARGET)
 all-apps: $(APP_TARGETS)
 
 $(BIN_DIR)/$(TARGET): $(OBJECTS) | $(BIN_DIR)
@@ -37,6 +38,9 @@ clean:
 run: $(BIN_DIR)/$(TARGET)
 	./$(BIN_DIR)/$(TARGET)
 
+valgrind: $(BIN_DIR)/$(TARGET)
+	valgrind --leak-check=full ./$(BIN_DIR)/$(TARGET)
+
 -include $(DEPS)
 
-.PHONY: all all-apps clean run
+.PHONY: all all-desktop all-apps clean run valgrind

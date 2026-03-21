@@ -16,7 +16,8 @@ DEPS := $(OBJECTS:.o=.d)
 APP_SOURCES := $(wildcard $(APP_DIR)/*.c)
 APP_TARGETS := $(APP_SOURCES:$(APP_DIR)/%.c=$(BIN_DIR)/%.so)
 
-all: $(BIN_DIR)/$(TARGET) all-apps
+all: all-desktop all-apps
+all-desktop: $(BIN_DIR)/$(TARGET)
 all-apps: $(APP_TARGETS)
 
 $(BIN_DIR)/$(TARGET): $(OBJECTS) | $(BIN_DIR)
@@ -42,4 +43,4 @@ valgrind: $(BIN_DIR)/$(TARGET)
 
 -include $(DEPS)
 
-.PHONY: all all-apps clean run valgrind
+.PHONY: all all-desktop all-apps clean run valgrind

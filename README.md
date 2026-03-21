@@ -1,69 +1,40 @@
 # ttydesktop
-idk man
-
-a terminal-based kinda? desktop environment slash window manager
-
-and. windows. and apps
-
-and written in C i like C
+a desktop environment window manager-like thing that runs in the terminal
 
 ## features
-what do people even put here
+* dynamic app loading with libdl
+* opening, closing, moving, resizing, focusing windows (a shocker)
+* windows also have events
+* half-baked multithreading
+* a bar at the bottom which is a status bar but also isnt a status bar
+* i hate ncurses
 
-uhhh
+## building
+prerequisites:
+* by default clang+lld, can change in makefile
+* pthreads
+* libdl
+then, to build everything: make (or make all)
 
-* windows
-
-
-i suck at this
-
-* dynamic app loading
-* window managemtn - move, resize, focus, close. a shockr i know
-* fullscreen terminal rendering and ncurses sucks by the way
-* is multithreading a feature
-* events
-* look idk a status bar ok
-* example apps????
-
-## bulding
-with make
-
-needs clang+lld (tho not necessarily) pthread and libdl
-
-stuff in bin
+resulting binaries and .so's (apps) go in bin/
 
 ## usage
-./bin/ttydesktop or make run
+run with ./bin/ttydesktop or ./ttydesktop if youre already in bin/
 
-thats all
+### usage 2
+this is kinda a state machine
 
-### oh wait i need to describe how to use it too
-basically, a state machine
-* normal - press a command key and youre not normal anymore
-* * q - quit (arguably the best command you can run)
-* * f - focus a window
-* * m - move a window
-* * r - resize a window
-* * c - close a window
-* * this is really boring
-* * o - open a window
-* moving and resizing
-* * hjkl or arrow keys, esc to cancel, enter to confirm
-* focused
-* * all key events sent to the focused window
-* * unless you press escape
-* * then unfocus
-* quit
-
-
-ight whats next
-## included examples
-### example.c
-boring
-### bouncy.c
-less boring its a little thing that bounces around
-### shadows.c
-this one my fave it hooks into the window rendering stuff and adds shadows
+* normal - state on launch and when youre not focused or typing a command
+* * q - quit
+* * o - open a new window, prompts for path to .so
+* * f - focus a window by index
+* * m - move a window by index with arrow keys or hjkl
+* * r - resize a window by index also with arrow keys or hjkl
+* * c - close a window by index
+* command - state when typing a command, enter to submit, esc to cancel
+* focused - when a window is focused
+* * all key events are sent to the focused window
+* * except esc, that one unfocuses
 
 ## license
 GPLv3
