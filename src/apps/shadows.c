@@ -35,7 +35,8 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   (void)desktop;
   (void)data;
   if(event == WINDOW_EVENT_CLOSE) {
-    hookman_detach_all(hm, "shadows");
+    hm = hookman_find(desktop);
+    if(hm) hookman_detach_all(hm, "shadows");
     return false;
   }
   if(event == WINDOW_EVENT_FOCUS) return true;

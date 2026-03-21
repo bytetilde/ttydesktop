@@ -48,37 +48,43 @@ bool call_hooks(hook_payload_t* payload, const char* hook_point) {
   unsigned long long h = hash(hook_point);
   pthread_mutex_lock(&hookman->lock);
   hook_t* hooks = hm_get(hookman->hooks, h);
-  pthread_mutex_unlock(&hookman->lock);
-  if(!hooks) return false;
+  bool result = false;
   while(hooks) {
-    if(hooks->function(payload)) return true;
+    if(hooks->function(payload)) {
+      result = true;
+      break;
+    }
     hooks = hooks->next;
   }
-  return true;
+  pthread_mutex_unlock(&hookman->lock);
+  return result;
 }
 bool call_hooks_before(hook_payload_t* payload, const char* hook_point) {
   if(!hookman) return false;
   unsigned long long h = hash(hook_point);
   pthread_mutex_lock(&hookman->lock);
   hook_t* hooks = hm_get(hookman->hooks_before, h);
-  pthread_mutex_unlock(&hookman->lock);
-  if(!hooks) return false;
+  bool result = false;
   while(hooks) {
-    if(hooks->function(payload)) return true;
+    if(hooks->function(payload)) {
+      result = true;
+      break;
+    }
     hooks = hooks->next;
   }
-  return false;
+  pthread_mutex_unlock(&hookman->lock);
+  return result;
 }
 void call_hooks_after(hook_payload_t* payload, const char* hook_point) {
   if(!hookman) return;
   unsigned long long h = hash(hook_point);
   pthread_mutex_lock(&hookman->lock);
   hook_t* hooks = hm_get(hookman->hooks_after, h);
-  pthread_mutex_unlock(&hookman->lock);
   while(hooks) {
     hooks->function(payload);
     hooks = hooks->next;
   }
+  pthread_mutex_unlock(&hookman->lock);
 }
 
 typedef struct window_thread_arg_t {
@@ -598,7 +604,11 @@ void window_init(desktop_t* desktop, window_t* win) {
   win->onevent = onevent;
   hookman_t* hm = calloc(1, sizeof(hookman_t));
   hm->magic = HOOKMAN_MAGIC;
-  pthread_mutex_init(&hm->lock, NULL);
+  pthread_mutexattr_t attr;
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&hm->lock, &attr);
+  pthread_mutexattr_destroy(&attr);
   hm->hooks = hm_create(16);
   hm->hooks_before = hm_create(16);
   hm->hooks_after = hm_create(16);
