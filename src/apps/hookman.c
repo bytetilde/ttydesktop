@@ -35,11 +35,8 @@ static void hook_list_free(hook_t* list) {
 }
 static void hm_destroy_hooks(hashmap_t* map) {
   if(!map) return;
-  for(size_t i = 0; i < map->capacity; ++i) {
-    if(map->buckets[i].occupied) {
-      hook_list_free((hook_t*)map->buckets[i].value);
-    }
-  }
+  for(size_t i = 0; i < map->capacity; ++i)
+    if(map->buckets[i].occupied) hook_list_free((hook_t*)map->buckets[i].value);
   hm_destroy(map);
 }
 
@@ -539,11 +536,9 @@ static bool dispatch_window_event(desktop_t* desktop, window_t* window, int even
   bool has_override = hm_get(hookman->hooks, h) != NULL;
   pthread_mutex_unlock(&hookman->lock);
   if(has_override) result = call_hooks(&payload, event_name);
-  else {
-    if(hookman->orig_dispatch_window_event)
-      result = hookman->orig_dispatch_window_event(desktop, window, event, data);
-    else result = window->onevent ? window->onevent(window, desktop, event, data) : false;
-  }
+  else if(hookman->orig_dispatch_window_event)
+    result = hookman->orig_dispatch_window_event(desktop, window, event, data);
+  else result = window->onevent ? window->onevent(window, desktop, event, data) : false;
   call_hooks_after(&payload, event_name);
   return result;
 }

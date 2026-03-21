@@ -165,7 +165,7 @@ void tw_flush_region(int x, int y, int w, int h) {
         int bg = (attr >> 4) & 0x07;
         int bg_bright = (attr >> 7) & 1;
         int n = snprintf(out + ptr, sizeof(out) - ptr, "\033[0;%d;%dm", (fg_bright ? 90 : 30) + fg,
-                        (bg_bright ? 100 : 40) + bg);
+                         (bg_bright ? 100 : 40) + bg);
         if(n > 0) ptr += (n >= (int)(sizeof(out) - ptr)) ? (sizeof(out) - ptr - 1) : n;
         current_attr = attr;
       }
@@ -210,7 +210,7 @@ static int tw_decode_key() {
       int params[4] = {0, 0, 0, 0};
       int p_idx = 0;
       int code = tw_read_timeout(10);
-      while(isdigit(code) || code == ';') {
+      while(code != -1 && (isdigit(code) || code == ';')) {
         if(code == ';') {
           if(p_idx < 3) ++p_idx;
         } else params[p_idx] = params[p_idx] * 10 + (code - '0');
