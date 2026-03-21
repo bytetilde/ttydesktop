@@ -68,7 +68,8 @@ void draw(window_t* window, desktop_t* desktop) {
   window->content[s->by * window->w + s->bx] = 'O' | (0b00001010 << 8);
 }
 
-void window_init(window_t* win) {
+void window_init(desktop_t* desktop, window_t* win) {
+  (void)desktop;
   bouncy_state_t* s = calloc(1, sizeof(bouncy_state_t));
   s->bvx = 1;
   s->bvy = 1;

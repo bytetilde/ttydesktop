@@ -73,26 +73,9 @@ typedef struct desktop_t {
   int buflen;
   int target;
   int ox, oy, ow, oh;
-  bool (*before_update)(desktop_t* desktop);
   bool (*update)(desktop_t* desktop);
-  bool (*after_update)(desktop_t* desktop);
-  void (*before_draw)(desktop_t* desktop);
   void (*draw)(desktop_t* desktop);
-  void (*before_window_draw)(desktop_t* desktop, window_t* window, int i);
-  void (*after_window_draw)(desktop_t* desktop, window_t* window, int i);
-  void (*after_draw)(desktop_t* desktop);
-  void (*on_status_change)(desktop_t* desktop, const char* new_status);
-  void (*before_draw_status_bar)(desktop_t* desktop);
-  void (*draw_status_bar)(desktop_t* desktop);
-  // void (*after_draw_status_bar)(desktop_t* desktop);
-  bool (*before_key)(desktop_t* desktop, int key);
-  bool (*on_key)(desktop_t* desktop, int key);
-  void (*after_key)(desktop_t* desktop, int key);
-  bool (*before_window_event)(desktop_t* desktop, window_t* window, int index, int event,
-                              void* data);
-  void (*after_window_event)(desktop_t* desktop, window_t* window, int index, int event,
-                             void* data);
-  void (*before_window_update)(desktop_t* desktop, window_t* window, int index);
-  void (*after_window_update)(desktop_t* desktop, window_t* window, int index);
+  bool (*onkey)(desktop_t* desktop, int key);
   void (*close_window)(desktop_t* desktop, int index);
+  bool (*dispatch_window_event)(desktop_t* desktop, window_t* window, int event, void* data);
 } desktop_t;

@@ -47,7 +47,8 @@ void draw(window_t* window, desktop_t* desktop) {
   (void)desktop;
 }
 
-void window_init(window_t* win) {
+void window_init(desktop_t* desktop, window_t* win) {
+  (void)desktop;
   win->x = 0;
   win->y = 0;
   win->w = 20;

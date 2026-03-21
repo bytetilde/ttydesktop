@@ -15,52 +15,89 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "hookman.h"
 #include "commonapi.h"
 #include "tw.h"
 #include <dlfcn.h>
-#include <pthread.h>
 #include <stdarg.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+static hookman_t* hookman = NULL;
+
+bool call_hooks(hook_payload_t* payload, const char* hook_point) {
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks, h);
+  pthread_mutex_unlock(&hookman->lock);
+  if(!hooks) return false;
+  while(hooks) {
+    if(hooks->function(payload)) return true;
+    hooks = hooks->next;
+  }
+  return false;
+}
+bool call_hooks_before(hook_payload_t* payload, const char* hook_point) {
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks_before, h);
+  pthread_mutex_unlock(&hookman->lock);
+  if(!hooks) return false;
+  while(hooks) {
+    if(hooks->function(payload)) return true;
+    hooks = hooks->next;
+  }
+  return false;
+}
+void call_hooks_after(hook_payload_t* payload, const char* hook_point) {
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks_after, h);
+  pthread_mutex_unlock(&hookman->lock);
+  while(hooks) {
+    hooks->function(payload);
+    hooks = hooks->next;
+  }
+}
 
 typedef struct window_thread_arg_t {
   window_t* window;
   desktop_t* desktop;
 } window_thread_arg_t;
-void* window_update_wrapper(void* arg) {
-  window_thread_arg_t* warg = arg;
-  if(warg->window->update) warg->window->update(warg->window, warg->desktop);
-  return NULL;
-}
-void* window_draw_wrapper(void* arg) {
-  window_thread_arg_t* warg = arg;
-  desktop_t* desktop = warg->desktop;
-  window_t* window = warg->window;
-  if(window->hidden) return NULL;
-  if(window->draw) window->draw(window, desktop);
-  return NULL;
-}
-void set_status(desktop_t* desktop, const char* fmt, ...) {
+static void set_status(desktop_t* desktop, const char* fmt, ...) {
   va_list args;
   va_start(args, fmt);
   vsnprintf(desktop->statustext, 256, fmt, args);
   va_end(args);
 }
-bool dispatch_window_event(desktop_t* desktop, window_t* window, int event, void* data) {
-  bool ignore = false;
-  if(window->onevent) ignore = window->onevent(window, desktop, event, data);
-  return ignore;
+static void* window_update_wrapper(void* arg) {
+  window_thread_arg_t* warg = arg;
+  if(warg->window->update) warg->window->update(warg->window, warg->desktop);
+  return NULL;
 }
-static void desktop_close_window(desktop_t* desktop, int index) {
-  if(index < 0 || index >= desktop->window_count) return;
-  desktop->windows[index].close_pending = true;
+static void* window_draw_wrapper(void* arg) {
+  window_thread_arg_t* warg = arg;
+  desktop_t* desktop = warg->desktop;
+  window_t* window = warg->window;
+  if(window->hidden) return NULL;
+  hook_payload_t payload = {.desktop = desktop, .window = window, .data = NULL};
+  if(call_hooks_before(&payload, "window_draw")) return NULL;
+  unsigned long long h = hash("window_draw");
+  pthread_mutex_lock(&hookman->lock);
+  bool has_override = hm_get(hookman->hooks, h) != NULL;
+  pthread_mutex_unlock(&hookman->lock);
+  if(has_override) call_hooks(&payload, "window_draw");
+  else if(window->draw) window->draw(window, desktop);
+  call_hooks_after(&payload, "window_draw");
+  return NULL;
 }
-bool desktop_update(desktop_t* desktop) {
+static bool desktop_update(desktop_t* desktop) {
+  hook_payload_t payload = {.desktop = desktop, .window = NULL, .data = NULL};
+  if(call_hooks_before(&payload, "desktop_update")) return false;
   int ch = tw_getch();
   if(ch != -1 && ch != 0) {
+    hook_payload_t kpayload = {.desktop = desktop, .window = NULL, .data = (void*)(long)ch};
+    if(call_hooks_before(&kpayload, "key")) goto skip_key;
     if(desktop->onkey) {
       if(desktop->onkey(desktop, ch)) goto skip_key;
     } else if(desktop->state == STATE_NORMAL) {
@@ -265,7 +302,8 @@ bool desktop_update(desktop_t* desktop) {
       else if((ch == 'k' || ch == TW_KEY_UP) && desktop->oh > 1) --desktop->oh;
       else if(ch == 'j' || ch == TW_KEY_DOWN) ++desktop->oh;
     }
-  skip_key:;
+  skip_key:
+    call_hooks_after(&kpayload, "key");
   }
   if(desktop->window_count > 0) {
     pthread_t* threads = calloc(desktop->window_count, sizeof(pthread_t));
@@ -290,9 +328,12 @@ bool desktop_update(desktop_t* desktop) {
       --desktop->window_count;
     }
   }
+  call_hooks_after(&payload, "desktop_update");
   return false;
 }
-void desktop_draw(desktop_t* desktop) {
+static void desktop_draw(desktop_t* desktop) {
+  hook_payload_t payload = {.desktop = desktop, .window = NULL, .data = NULL};
+  if(call_hooks_before(&payload, "desktop_draw")) return;
   tw_clear(0b01000000);
   if(desktop->window_count > 0) {
     pthread_t* threads = calloc(desktop->window_count, sizeof(pthread_t));
@@ -311,6 +352,8 @@ void desktop_draw(desktop_t* desktop) {
     for(int i = desktop->window_count - 1; i >= 0; --i) {
       window_t* window = &desktop->windows[i];
       if(window->hidden) continue;
+      hook_payload_t wpayload = {.desktop = desktop, .window = window, .data = (void*)(long)i};
+      if(call_hooks_before(&wpayload, "desktop_window_draw")) continue;
       char title_attr =
         (desktop->state == STATE_FOCUSED && desktop->target == i) ? 0b00100000 : 0b01100000;
       int draww =
@@ -339,56 +382,105 @@ void desktop_draw(desktop_t* desktop) {
           }
         }
       } else tw_fill(window->x, window->y + 1, draww, drawh, 0);
+      call_hooks_after(&wpayload, "desktop_window_draw");
     }
   }
-  tw_wh_t size = tw_get_size();
-  tw_fill(0, size.h - 1, size.w, 1, 0b01110000);
-  tw_puts(desktop->statustext, 0, size.h - 1, 0b01110000);
+  if(!call_hooks_before(&payload, "status_draw")) {
+    tw_wh_t size = tw_get_size();
+    tw_fill(0, size.h - 1, size.w, 1, 0b01110000);
+    tw_puts(desktop->statustext, 0, size.h - 1, 0b01110000);
+    call_hooks_after(&payload, "status_draw");
+  }
+  call_hooks_after(&payload, "desktop_draw");
+}
+static bool dispatch_window_event(desktop_t* desktop, window_t* window, int event, void* data) {
+  hook_payload_t payload = {.desktop = desktop, .window = window, .data = data};
+  const char* event_names[] = {
+    "window_event_none",   "window_event_key",   "window_event_move",
+    "window_event_resize", "window_event_focus", "window_event_unfocus",
+    "window_event_close",  "window_event_open",  "window_event_close_force",
+  };
+  const char* event_name = (event >= 0 && event <= 8) ? event_names[event] : "window_event_unknown";
+  if(call_hooks_before(&payload, event_name)) return true;
+  bool result = false;
+  unsigned long long h = hash(event_name);
+  pthread_mutex_lock(&hookman->lock);
+  bool has_override = hm_get(hookman->hooks, h) != NULL;
+  pthread_mutex_unlock(&hookman->lock);
+  if(has_override) result = call_hooks(&payload, event_name);
+  else result = hookman->orig_dispatch_window_event(desktop, window, event, data);
+  call_hooks_after(&payload, event_name);
+  return result;
 }
 
-int main() {
-  printf("ttydesktop  Copyrighn't (C) 2026  bytetilde\n");
-  printf("This program comes with ABSOLUTELY NO WARRANTY; for details see the GNU General Public "
-         "License (version 3).\n");
-  printf("This is free software, and you are welcome to redistribute it\n");
-  printf("under the terms of the GNU General Public License (version 3).\n");
-  desktop_t desktop = {
-    .windows = NULL,
-    .window_count = 0,
-    .window_capacity = 0,
-    .state = STATE_NORMAL,
-    .buflen = 0,
-    .target = 0,
-    .ox = 0,
-    .oy = 0,
-    .ow = 0,
-    .oh = 0,
-    .update = desktop_update,
-    .draw = desktop_draw,
-    .onkey = NULL,
-    .close_window = desktop_close_window,
-    .dispatch_window_event = dispatch_window_event,
-  };
-  desktop.statustext = calloc(256, sizeof(char));
-  if(!desktop.statustext) {
-    fprintf(stderr, "failed to allocate statustext\n");
-    return 1;
+bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
+  (void)desktop;
+  (void)data;
+  if(event == WINDOW_EVENT_CLOSE) {
+    if(!window->hidden) {
+      window->hidden = true;
+      return true;
+    }
+  } else if(event == WINDOW_EVENT_CLOSE_FORCE || (event == WINDOW_EVENT_CLOSE && window->hidden)) {
+    if(desktop->update == desktop_update) desktop->update = hookman->orig_desktop_update;
+    if(desktop->draw == desktop_draw) desktop->draw = hookman->orig_desktop_draw;
+    if(desktop->dispatch_window_event == dispatch_window_event)
+      desktop->dispatch_window_event = hookman->orig_dispatch_window_event;
+    if(window->title) free(window->title);
+    if(window->content) free(window->content);
   }
-  snprintf(desktop.statustext, 256, "hello tty desktop");
-  tw_init();
-  while(1) {
-    if(desktop.update(&desktop)) break;
-    desktop.draw(&desktop);
-    tw_flush();
-    usleep(33333);
+  if(event == WINDOW_EVENT_RESIZE) return true;
+  return false;
+}
+void update(window_t* window, desktop_t* desktop) {
+  (void)window;
+  if(desktop->update != desktop_update) {
+    hookman->orig_desktop_update = desktop->update;
+    desktop->update = desktop_update;
   }
-  for(int i = desktop.window_count - 1; i >= 0; --i)
-    if(desktop.dispatch_window_event(&desktop, &desktop.windows[i], WINDOW_EVENT_CLOSE, NULL))
-      desktop.dispatch_window_event(&desktop, &desktop.windows[i], WINDOW_EVENT_CLOSE_FORCE, NULL);
-  for(int i = desktop.window_count - 1; i >= 0; --i)
-    if(desktop.windows[i].handle) dlclose(desktop.windows[i].handle);
-  if(desktop.windows) free(desktop.windows);
-  if(desktop.statustext) free(desktop.statustext);
-  tw_deinit();
-  return 0;
+  if(desktop->draw != desktop_draw) {
+    hookman->orig_desktop_draw = desktop->draw;
+    desktop->draw = desktop_draw;
+  }
+  if(desktop->dispatch_window_event != dispatch_window_event) {
+    hookman->orig_dispatch_window_event = desktop->dispatch_window_event;
+    desktop->dispatch_window_event = dispatch_window_event;
+  }
+}
+void draw(window_t* window, desktop_t* desktop) {
+  (void)desktop;
+  const char* msg = "hookman active";
+  for(int i = 0; i < (int)strlen(msg) && i < window->w; ++i)
+    window->content[i] = msg[i] | (0b01110000 << 8);
+}
+void window_init(desktop_t* desktop, window_t* win) {
+  (void)desktop;
+  if(hookman) {
+    win->close_pending = 1;
+    win->hidden = true;
+    return;
+  }
+  win->x = 0;
+  win->y = 0;
+  win->w = 14;
+  win->h = 1;
+  win->title = strdup("hookman");
+  win->content = calloc(win->w * win->h, sizeof(short));
+  win->update = update;
+  win->draw = draw;
+  win->onevent = onevent;
+  hookman_t* hm = calloc(1, sizeof(hookman_t));
+  hm->magic = HOOKMAN_MAGIC;
+  pthread_mutex_init(&hm->lock, NULL);
+  hm->hooks = hm_create(16);
+  hm->hooks_before = hm_create(16);
+  hm->hooks_after = hm_create(16);
+  hm->orig_desktop_update = desktop->update;
+  hm->orig_desktop_draw = desktop->draw;
+  hm->orig_dispatch_window_event = desktop->dispatch_window_event;
+  desktop->update = desktop_update;
+  desktop->draw = desktop_draw;
+  desktop->dispatch_window_event = dispatch_window_event;
+  hookman = hm;
+  win->data = hm;
 }

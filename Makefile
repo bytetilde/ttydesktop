@@ -35,10 +35,10 @@ $(BIN_DIR) $(OBJ_DIR):
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
-run: $(BIN_DIR)/$(TARGET)
+run: all-desktop
 	./$(BIN_DIR)/$(TARGET)
 
-valgrind: $(BIN_DIR)/$(TARGET)
+valgrind: all-desktop
 	valgrind --leak-check=full ./$(BIN_DIR)/$(TARGET)
 
 -include $(DEPS)

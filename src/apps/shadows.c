@@ -16,24 +16,26 @@
  */
 
 #include "commonapi.h"
+#include "hookman.h"
 #include "tw.h"
 #include <string.h>
 
-static void shadow_drawer(desktop_t* desktop, window_t* window, int i) {
-  (void)desktop;
-  (void)i;
-  tw_fill(window->x + window->w, window->y + 1, 1, window->h + 1, 0);
-  tw_fill(window->x + 1, window->y + window->h + 1, window->w, 1, 0);
+static hookman_t* hm;
+
+static void* shadow_drawer(hook_payload_t* payload) {
+  if(!payload || !payload->window) return NULL;
+  tw_fill(payload->window->x + payload->window->w, payload->window->y + 1, 1,
+          payload->window->h + 1, 0);
+  tw_fill(payload->window->x + 1, payload->window->y + payload->window->h + 1, payload->window->w,
+          1, 0);
+  return NULL;
 }
 bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   (void)window;
+  (void)desktop;
   (void)data;
   if(event == WINDOW_EVENT_CLOSE) {
-    if(desktop->after_window_draw == shadow_drawer) desktop->after_window_draw = NULL;
-    return false;
-  }
-  if(event == WINDOW_EVENT_CLOSE_FORCE) {
-    if(desktop->after_window_draw == shadow_drawer) desktop->after_window_draw = NULL;
+    hookman_detach_all(hm, "shadows");
     return false;
   }
   if(event == WINDOW_EVENT_FOCUS) return true;
@@ -41,10 +43,16 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
 }
 void update(window_t* window, desktop_t* desktop) {
   (void)window;
-  if(desktop->after_window_draw != shadow_drawer) desktop->after_window_draw = shadow_drawer;
+  (void)desktop;
 }
-void window_init(window_t* win) {
+void window_init(desktop_t* desktop, window_t* win) {
   win->hidden = true;
+  hm = hookman_find(desktop);
+  if(!hm) {
+    win->close_pending = true;
+    return;
+  }
+  hookman_attach_after(hm, "shadows", "desktop_window_draw", shadow_drawer);
   win->update = update;
   win->onevent = onevent;
 }
