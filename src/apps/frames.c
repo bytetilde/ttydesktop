@@ -60,6 +60,12 @@ void* after_desktop_draw(hook_payload_t* payload) {
   if(fs->last_fps > 1000) fs->last_fps = 1000;
   return NULL;
 }
+void* desktop_status_update(hook_payload_t* payload) {
+  if(!payload || !payload->data || !fs) return NULL;
+  double* ptimer = (double*)payload->data;
+  *ptimer -= fs->delta_time;
+  return (void*)1;
+}
 void* desktop_flush(hook_payload_t* payload) {
   if(!payload || !payload->desktop) return NULL;
   if(!fs) return NULL;
@@ -153,6 +159,7 @@ void window_init(desktop_t* desktop, window_t* win) {
     win->close_pending = true;
     return;
   }
+  hookman_attach_before(hm, "frames", "desktop_status_update", desktop_status_update);
   hookman_attach_before(hm, "frames", "desktop_update", before_desktop_update);
   hookman_attach_after(hm, "frames", "desktop_draw", after_desktop_draw);
   hookman_attach(hm, "frames", "desktop_flush", desktop_flush);

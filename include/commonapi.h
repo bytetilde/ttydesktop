@@ -71,8 +71,10 @@ typedef struct desktop_t {
   desktop_state_t state;
   char buf[256];
   int buflen;
+  int cursor_pos;
   int target;
   int ox, oy, ow, oh;
+  double statustimer;
   bool (*update)(desktop_t* desktop);
   void (*draw)(desktop_t* desktop);
   bool (*flush)(desktop_t* desktop);

@@ -48,6 +48,7 @@ void set_status(desktop_t* desktop, const char* fmt, ...) {
   va_start(args, fmt);
   vsnprintf(desktop->statustext, 256, fmt, args);
   va_end(args);
+  desktop->statustimer = 3.0;
 }
 bool dispatch_window_event(desktop_t* desktop, window_t* window, int event, void* data) {
   bool ignore = false;
@@ -82,7 +83,7 @@ static void desktop_open_window(desktop_t* desktop, const char* path) {
       window_t* new_windows =
         realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
       if(!new_windows) {
-        set_status(desktop, "out of memory");
+        set_status(desktop, "error: out of memory");
         dlclose(handle);
         return;
       }
@@ -97,16 +98,22 @@ static void desktop_open_window(desktop_t* desktop, const char* path) {
     *(void**)(&init_fn) = dlsym(handle, "window_init");
     if(dlerror() || !init_fn) {
       memmove(&desktop->windows[0], &desktop->windows[1], sizeof(window_t) * desktop->window_count);
-      set_status(desktop, "failed to find window_init");
+      set_status(desktop, "error: %s: window_init not found", path);
       dlclose(handle);
       return;
     }
     ++desktop->window_count;
     init_fn(desktop, w);
     desktop->dispatch_window_event(desktop, w, WINDOW_EVENT_OPEN, NULL);
-    set_status(desktop, "opened %s", path);
+    desktop->cursor_pos = 0;
+    int visible = 0;
+    for(int i = 0; i < desktop->window_count; ++i)
+      if(!desktop->windows[i].hidden) ++visible;
+    snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
   } else {
-    set_status(desktop, "failed to load %s: %s", path, dlerror());
+    // Check if file exists but failed to load, or just missing
+    if(access(path, F_OK) == 0) set_status(desktop, "error: %s: %s", path, dlerror());
+    else set_status(desktop, "error: %s not found in lookup paths", path);
   }
 }
 static void desktop_load_autostart_config(desktop_t* desktop) {
@@ -138,40 +145,60 @@ static void desktop_close_window(desktop_t* desktop, int index) {
   desktop->windows[index].close_pending = true;
 }
 bool desktop_update(desktop_t* desktop) {
+  if(desktop->statustimer > 0 && desktop->state != STATE_MOVING &&
+     desktop->state != STATE_RESIZING && desktop->state != STATE_FOCUSED) {
+    desktop->statustimer -= 0.033333;
+    if(desktop->statustimer <= 0) {
+      int visible = 0;
+      for(int i = 0; i < desktop->window_count; ++i)
+        if(!desktop->windows[i].hidden) ++visible;
+      snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
+    }
+  }
   int ch = tw_getch();
   if(ch != -1 && ch != 0) {
     if(desktop->onkey) {
       if(desktop->onkey(desktop, ch)) goto skip_key;
     } else if(desktop->state == STATE_NORMAL) {
       if(ch == 'q') return true;
-      else if(ch == 'f' || ch == 'm' || ch == 'r' || ch == 'c' || ch == 'o') {
+      else if(ch == 'f') { // focus
+        desktop->state = STATE_PROMPT_FOCUS;
         desktop->buflen = 0;
+        desktop->cursor_pos = 0;
         desktop->buf[0] = '\0';
-        if(ch == 'f') {
-          desktop->state = STATE_PROMPT_FOCUS;
-          set_status(desktop, ":f ");
-        }
-        if(ch == 'm') {
-          desktop->state = STATE_PROMPT_MOVE;
-          set_status(desktop, ":m ");
-        }
-        if(ch == 'r') {
-          desktop->state = STATE_PROMPT_RESIZE;
-          set_status(desktop, ":r ");
-        }
-        if(ch == 'c') {
-          desktop->state = STATE_PROMPT_CLOSE;
-          set_status(desktop, ":c ");
-        }
-        if(ch == 'o') {
-          desktop->state = STATE_PROMPT_OPEN;
-          set_status(desktop, ":o ");
-        }
+        set_status(desktop, ":f ");
+      } else if(ch == 'o') { // open
+        desktop->state = STATE_PROMPT_OPEN;
+        desktop->buflen = 0;
+        desktop->cursor_pos = 0;
+        desktop->buf[0] = '\0';
+        set_status(desktop, ":o ");
+      } else if(ch == 'm') { // move
+        desktop->state = STATE_PROMPT_MOVE;
+        desktop->buflen = 0;
+        desktop->cursor_pos = 0;
+        desktop->buf[0] = '\0';
+        set_status(desktop, ":m ");
+      } else if(ch == 'r') { // resize
+        desktop->state = STATE_PROMPT_RESIZE;
+        desktop->buflen = 0;
+        desktop->cursor_pos = 0;
+        desktop->buf[0] = '\0';
+        set_status(desktop, ":r ");
+      } else if(ch == 'c') { // close
+        desktop->state = STATE_PROMPT_CLOSE;
+        desktop->buflen = 0;
+        desktop->cursor_pos = 0;
+        desktop->buf[0] = '\0';
+        set_status(desktop, ":c ");
       }
     } else if(desktop->state >= STATE_PROMPT_FOCUS && desktop->state <= STATE_PROMPT_OPEN) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
         desktop->state = STATE_NORMAL;
-        set_status(desktop, "%d window(s)", desktop->window_count);
+        int visible = 0;
+        for(int i = 0; i < desktop->window_count; ++i)
+          if(!desktop->windows[i].hidden) ++visible;
+        snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) { // enter
         int idx = atoi(desktop->buf);
         if(desktop->state == STATE_PROMPT_OPEN) {
@@ -232,33 +259,44 @@ bool desktop_update(desktop_t* desktop) {
                 desktop->windows[i] = desktop->windows[i + 1];
               --desktop->window_count;
               desktop->state = STATE_NORMAL;
-              set_status(desktop, "%d window(s)", desktop->window_count);
+              int visible = 0;
+              for(int i = 0; i < desktop->window_count; ++i)
+                if(!desktop->windows[i].hidden) ++visible;
+              snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count,
+                       visible);
             }
           }
         } else {
           desktop->state = STATE_NORMAL;
           set_status(desktop, "invalid index");
         }
-      } else if(ch == TW_KEY_BACKSPACE || ch == 127 || ch == '\b') { // backspace
-        if(desktop->buflen > 0) {
-          desktop->buf[--desktop->buflen] = '\0';
-          char pfx = ' ';
-          if(desktop->state == STATE_PROMPT_FOCUS) pfx = 'f';
-          if(desktop->state == STATE_PROMPT_MOVE) pfx = 'm';
-          if(desktop->state == STATE_PROMPT_RESIZE) pfx = 'r';
-          if(desktop->state == STATE_PROMPT_CLOSE) pfx = 'c';
-          if(desktop->state == STATE_PROMPT_OPEN) pfx = 'o';
-          set_status(desktop, ":%c %s", pfx, desktop->buf);
+      } else if(ch == TW_KEY_LEFT) {
+        if(desktop->cursor_pos > 0) --desktop->cursor_pos;
+      } else if(ch == TW_KEY_RIGHT) {
+        if(desktop->cursor_pos < desktop->buflen) ++desktop->cursor_pos;
+      } else if(ch == TW_KEY_BACKSPACE || ch == 127 || ch == 8) {
+        if(desktop->cursor_pos > 0) {
+          memmove(&desktop->buf[desktop->cursor_pos - 1], &desktop->buf[desktop->cursor_pos],
+                  desktop->buflen - desktop->cursor_pos + 1);
+          --desktop->buflen;
+          --desktop->cursor_pos;
         }
-      } else if(ch >= 32 && ch <= 126 && ch != 127 && desktop->buflen < 255) {
-        desktop->buf[desktop->buflen++] = (char)ch;
-        desktop->buf[desktop->buflen] = '\0';
+      } else if(ch >= 32 && ch <= 126 && desktop->buflen < 255) {
+        memmove(&desktop->buf[desktop->cursor_pos + 1], &desktop->buf[desktop->cursor_pos],
+                desktop->buflen - desktop->cursor_pos + 1);
+        desktop->buf[desktop->cursor_pos++] = (char)ch;
+        ++desktop->buflen;
+      }
+      if(desktop->state >= STATE_PROMPT_FOCUS && desktop->state <= STATE_PROMPT_OPEN) {
         char pfx = ' ';
-        if(desktop->state == STATE_PROMPT_FOCUS) pfx = 'f';
-        if(desktop->state == STATE_PROMPT_MOVE) pfx = 'm';
-        if(desktop->state == STATE_PROMPT_RESIZE) pfx = 'r';
-        if(desktop->state == STATE_PROMPT_CLOSE) pfx = 'c';
-        if(desktop->state == STATE_PROMPT_OPEN) pfx = 'o';
+        switch(desktop->state) {
+          case STATE_PROMPT_FOCUS: pfx = 'f'; break;
+          case STATE_PROMPT_OPEN: pfx = 'o'; break;
+          case STATE_PROMPT_MOVE: pfx = 'm'; break;
+          case STATE_PROMPT_RESIZE: pfx = 'r'; break;
+          case STATE_PROMPT_CLOSE: pfx = 'c'; break;
+          default: pfx = '?'; break;
+        }
         set_status(desktop, ":%c %s", pfx, desktop->buf);
       }
     } else if(desktop->state == STATE_FOCUSED) {
@@ -266,7 +304,10 @@ bool desktop_update(desktop_t* desktop) {
         desktop->dispatch_window_event(desktop, &desktop->windows[desktop->target],
                                        WINDOW_EVENT_UNFOCUS, NULL);
         desktop->state = STATE_NORMAL;
-        set_status(desktop, "%d window(s)", desktop->window_count);
+        int visible = 0;
+        for(int i = 0; i < desktop->window_count; ++i)
+          if(!desktop->windows[i].hidden) ++visible;
+        snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
       } else {
         desktop->dispatch_window_event(desktop, &desktop->windows[0], WINDOW_EVENT_KEY,
                                        (void*)(long)ch);
@@ -276,14 +317,20 @@ bool desktop_update(desktop_t* desktop) {
         desktop->windows[desktop->target].x = desktop->ox;
         desktop->windows[desktop->target].y = desktop->oy;
         desktop->state = STATE_NORMAL;
-        set_status(desktop, "%d window(s)", desktop->window_count);
+        int visible = 0;
+        for(int i = 0; i < desktop->window_count; ++i)
+          if(!desktop->windows[i].hidden) ++visible;
+        snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) {
         window_move_event_t ev = {desktop->windows[desktop->target].x - desktop->ox,
                                   desktop->windows[desktop->target].y - desktop->oy};
         desktop->dispatch_window_event(desktop, &desktop->windows[desktop->target],
                                        WINDOW_EVENT_MOVE, &ev);
         desktop->state = STATE_NORMAL;
-        set_status(desktop, "%d window(s)", desktop->window_count);
+        int visible = 0;
+        for(int i = 0; i < desktop->window_count; ++i)
+          if(!desktop->windows[i].hidden) ++visible;
+        snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
       } else if(ch == 'h' || ch == TW_KEY_LEFT) --desktop->windows[desktop->target].x;
       else if(ch == 'l' || ch == TW_KEY_RIGHT) ++desktop->windows[desktop->target].x;
       else if(ch == 'k' || ch == TW_KEY_UP) --desktop->windows[desktop->target].y;
@@ -291,7 +338,10 @@ bool desktop_update(desktop_t* desktop) {
     } else if(desktop->state == STATE_RESIZING) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
         desktop->state = STATE_NORMAL;
-        set_status(desktop, "%d window(s)", desktop->window_count);
+        int visible = 0;
+        for(int i = 0; i < desktop->window_count; ++i)
+          if(!desktop->windows[i].hidden) ++visible;
+        snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) {
         window_resize_event_t ev = {desktop->ow - desktop->windows[desktop->target].w,
                                     desktop->oh - desktop->windows[desktop->target].h};
@@ -300,7 +350,10 @@ bool desktop_update(desktop_t* desktop) {
         desktop->dispatch_window_event(desktop, &desktop->windows[desktop->target],
                                        WINDOW_EVENT_RESIZE, &ev);
         desktop->state = STATE_NORMAL;
-        set_status(desktop, "%d window(s)", desktop->window_count);
+        int visible = 0;
+        for(int i = 0; i < desktop->window_count; ++i)
+          if(!desktop->windows[i].hidden) ++visible;
+        snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
       } else if((ch == 'h' || ch == TW_KEY_LEFT) && desktop->ow > 1) --desktop->ow;
       else if(ch == 'l' || ch == TW_KEY_RIGHT) ++desktop->ow;
       else if((ch == 'k' || ch == TW_KEY_UP) && desktop->oh > 1) --desktop->oh;
@@ -390,6 +443,8 @@ void desktop_draw(desktop_t* desktop) {
   tw_wh_t size = tw_get_size();
   tw_fill(0, size.h - 1, size.w, 1, 0b01110000);
   tw_puts(desktop->statustext, 0, size.h - 1, 0b01110000);
+  if(desktop->state >= STATE_PROMPT_FOCUS && desktop->state <= STATE_PROMPT_OPEN)
+    tw_putc(' ', 3 + desktop->cursor_pos, size.h - 1, 0b00000111);
 }
 
 int main(int argc, char** argv) {
