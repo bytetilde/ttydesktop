@@ -10,8 +10,9 @@ a desktop environment window manager-like thing that runs in the terminal
 * a bar at the bottom which is a status bar but also isnt a status bar
 * i hate ncurses
 * automatic application loading on startup from config files (autostart basically)
-* hookman: a meta-app that lets other apps hook into almost anything
-* hookman also has function exports so one app can call functions of other app and. yeah
+* hookman: a meta-app that lets other apps hook into almost anything (window draws, events, status bar, etc.)
+* hookman also has function exports so one app can call functions of other app
+* status bar oh wiat i already said that
 
 ## building
 prerequisites:
@@ -36,7 +37,10 @@ this is kinda a state machine
 * * `m` - move a window by index with arrow keys or hjkl
 * * `r` - resize a window by index also with arrow keys or hjkl
 * * `c` - close a window by index
-* command - state when typing a command, `enter` to submit, `esc` to cancel
+* command - state when typing a command
+* * `enter` to submit, `esc` to cancel
+* * `left`/`right` arrows to move cursor within the buffer
+* * `backspace` to delete characters at cursor
 * focused - when a window is focused
 * * all key events are sent to the focused window
 * * except `esc`, that one unfocuses
@@ -47,12 +51,21 @@ you can specify apps to load automatically by creating an `autostart.conf` file.
 2. `/etc/ttydesktop/autostart.conf`
 3. `./autostart.conf`
 
-one path to an `.so` per line, `#` for comments
+one path to an `.so` per line, `#` for comments.
+
+## app search paths
+if an app path doesn't start with `/` or `.`, ttydesktop looks for it in these directories:
+1. `./bin/`
+2. `$TTYDESKTOP_PATH` (environment variable)
+3. `~/.local/lib/ttydesktop/`
+4. `/usr/local/lib/ttydesktop/`
+5. `/usr/lib/ttydesktop/`
 
 ## included apps
 * `bin/bouncy.so`: a bouncing ball/circle/O thing
+* `bin/clock.so`: draws a digital clock in the status bar (bottom right); needs `hookman.so`
 * `bin/example.so`: a baseline for making new apps
-* `bin/frames.so`: frame timing controller and info (fps, timings). use `+`/`-` or `q`/`e` to change how fast the desktop runs; needs `hookman.so`
+* `bin/frames.so`: frame timing controller and info (fps, timings). use `+`/`-` or `q`/`e` to change target FPS (+/- 5 or +/- 1 respectively); needs `hookman.so`
 * `bin/hookman.so`: the core hooking engine. load first if you want other cool stuff to work
 * `bin/mandelbrot.so`: interactive mandelbrot renderer
     ![mandelbrot](screenshots/mandelbrot.png)
@@ -60,9 +73,9 @@ one path to an `.so` per line, `#` for comments
     ![shadows](screenshots/shadows.png)
 
 ## hookman
-hook points for window updates, draws, events, etc. (before, after, and override)
+hook points for windows, desktop updates, status bar, and other stuff; supports `before`, `after`, and override hooks
 
-also has export/unexport/call for cross-app function calling
+also has `export`, `unexport`, and `call` for cross-app function calling
 
 ## license
 GPLv3
