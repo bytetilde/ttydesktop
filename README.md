@@ -1,5 +1,6 @@
 # ttydesktop
 a desktop environment window manager-like thing that runs in the terminal
+![screenshot](screenshots/hero.png)
 
 ## features
 * dynamic app loading with libdl
@@ -53,7 +54,9 @@ one path to an `.so` per line, `#` for comments
 * `bin/frames.so`: frame timing controller and info (fps, timings). use `+`/`-` or `q`/`e` to change how fast the desktop runs; needs `hookman.so`
 * `bin/hookman.so`: the core hooking engine. load first if you want other cool stuff to work
 * `bin/mandelbrot.so`: interactive mandelbrot renderer
+    ![mandelbrot](screenshots/mandelbrot.png)
 * `bin/shadows.so`: adds simple drop shadows to windows; needs `hookman.so`
+    ![shadows](screenshots/shadows.png)
 
 ## hookman
 hook points for window updates, draws, events, etc. (before, after, and override)
