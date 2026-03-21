@@ -18,12 +18,13 @@
 // should i even do that for example apps
 
 #include "commonapi.h"
+#include "hookman.h"
 #include <stdlib.h>
 #include <string.h>
 
 typedef struct bouncy_state_t {
   int bx, by, bvx, bvy;
-  int fskip;
+  float fskip;
   int self_index;
 } bouncy_state_t;
 bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
@@ -60,33 +61,42 @@ void update(window_t* window, desktop_t* desktop) {
   (void)desktop;
   if(!window->content) return;
   bouncy_state_t* s = window->data;
-  s->fskip = (s->fskip + 1) % 4;
-  if(s->fskip) return;
-  int nbx = s->bx + s->bvx;
-  int nby = s->by + s->bvy;
-  if(nbx < 0) {
-    nbx = -nbx;
-    s->bvx = abs(s->bvx);
-  } else if(nbx >= window->w) {
-    nbx = 2 * (window->w - 1) - nbx;
-    s->bvx = -abs(s->bvx);
+  hookman_t* hm = hookman_find(desktop);
+  double dt = 0.033333;
+  if(hm) {
+    double* pdt = hookman_call(hm, "frames_get_delta_time", NULL);
+    if(pdt) dt = *pdt;
   }
-  if(nby < 0) {
-    nby = -nby;
-    s->bvy = abs(s->bvy);
-  } else if(nby >= window->h) {
-    nby = 2 * (window->h - 1) - nby;
-    s->bvy = -abs(s->bvy);
+  s->fskip += dt * 60.0f;
+  while(s->fskip >= 4.0f) {
+    s->fskip -= 4.0f;
+    int nbx = s->bx + s->bvx;
+    int nby = s->by + s->bvy;
+    if(nbx < 0) {
+      nbx = -nbx;
+      s->bvx = abs(s->bvx);
+    } else if(nbx >= window->w) {
+      nbx = 2 * (window->w - 1) - nbx;
+      s->bvx = -abs(s->bvx);
+    }
+    if(nby < 0) {
+      nby = -nby;
+      s->bvy = abs(s->bvy);
+    } else if(nby >= window->h) {
+      nby = 2 * (window->h - 1) - nby;
+      s->bvy = -abs(s->bvy);
+    }
+    s->bx = nbx;
+    s->by = nby;
   }
-  s->bx = nbx;
-  s->by = nby;
 }
 void draw(window_t* window, desktop_t* desktop) {
   (void)desktop;
   if(!window->content) return;
   bouncy_state_t* s = window->data;
   for(int i = 0; i < window->w * window->h; ++i) window->content[i] = ' ' | (0b01110000 << 8);
-  window->content[s->by * window->w + s->bx] = 'O' | (0b00001010 << 8);
+  if(s->bx >= 0 && s->bx < window->w && s->by >= 0 && s->by < window->h)
+    window->content[s->by * window->w + s->bx] = 'O' | (0b00001010 << 8);
 }
 
 void window_init(desktop_t* desktop, window_t* win) {
@@ -94,6 +104,7 @@ void window_init(desktop_t* desktop, window_t* win) {
   bouncy_state_t* s = calloc(1, sizeof(bouncy_state_t));
   s->bvx = 1;
   s->bvy = 1;
+  s->fskip = 0.0f;
   win->x = 0;
   win->y = 0;
   win->w = 20;

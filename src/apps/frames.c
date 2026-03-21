@@ -33,8 +33,14 @@ typedef struct frames_state_t {
   unsigned long long start_time;
   double last_fps;
   unsigned long long last_elapsed_us;
+  double delta_time;
 } frames_state_t;
 static frames_state_t* fs;
+void* frames_get_delta_time(void* data) {
+  (void)data;
+  if(!fs) return NULL;
+  return &fs->delta_time;
+}
 
 void* before_desktop_update(hook_payload_t* payload) {
   if(!payload || !payload->desktop) return NULL;
@@ -70,6 +76,7 @@ void* desktop_flush(hook_payload_t* payload) {
   }
   clock_gettime(CLOCK_MONOTONIC, &ts);
   now = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+  fs->delta_time = (double)(now - fs->start_time) / 1000000000.0;
   fs->start_time = now;
   return (void*)1;
 }
@@ -84,7 +91,10 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   }
   if(event == WINDOW_EVENT_CLOSE || event == WINDOW_EVENT_CLOSE_FORCE) {
     hm = hookman_find(desktop);
-    if(hm) hookman_detach_all(hm, "frames");
+    if(hm) {
+      hookman_unexport(hm, "frames_get_delta_time");
+      hookman_detach_all(hm, "frames");
+    }
     if(window->title) {
       free(window->title);
       window->title = NULL;
@@ -146,6 +156,7 @@ void window_init(desktop_t* desktop, window_t* win) {
   hookman_attach_before(hm, "frames", "desktop_update", before_desktop_update);
   hookman_attach_after(hm, "frames", "desktop_draw", after_desktop_draw);
   hookman_attach(hm, "frames", "desktop_flush", desktop_flush);
+  hookman_export(hm, "frames_get_delta_time", frames_get_delta_time);
   fs = calloc(1, sizeof(frames_state_t));
   fs->fps = 60;
   struct timespec ts;

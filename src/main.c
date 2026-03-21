@@ -421,9 +421,9 @@ int main(int argc, char** argv) {
     fprintf(stderr, "failed to allocate statustext\n");
     return 1;
   }
+  tw_init();
   desktop_load_autostart_config(&desktop);
   for(int i = 1; i < argc; ++i) desktop_open_window(&desktop, argv[i]);
-  tw_init();
   snprintf(desktop.statustext, 256, "hello tty desktop");
   while(1) {
     if(desktop.update(&desktop)) break;
