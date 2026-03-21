@@ -101,6 +101,61 @@ static void set_status(desktop_t* desktop, const char* fmt, ...) {
   else strncpy(desktop->statustext, buf, 256);
   call_hooks_after(&payload, "status_set");
 }
+static void desktop_open_window(desktop_t* desktop, const char* path) {
+  void* handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  char full_path[1024];
+  if(!handle && path[0] != '/' && path[0] != '.') {
+    const char* home = getenv("HOME");
+    char home_lib[512];
+    if(home) snprintf(home_lib, sizeof(home_lib), "%s/.local/lib/ttydesktop", home);
+    const char* search_paths[] = {"./bin",
+                                  getenv("TTYDESKTOP_PATH"),
+                                  home ? home_lib : NULL,
+                                  "/usr/local/lib/ttydesktop",
+                                  "/usr/lib/ttydesktop",
+                                  NULL};
+    for(int i = 0; search_paths[i]; ++i) {
+      snprintf(full_path, sizeof(full_path), "%s/%s", search_paths[i], path);
+      handle = dlopen(full_path, RTLD_NOW | RTLD_LOCAL);
+      if(handle) {
+        path = full_path;
+        break;
+      }
+    }
+  }
+  if(handle) {
+    if(desktop->window_count >= desktop->window_capacity) {
+      desktop->window_capacity = desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
+      window_t* new_windows =
+        realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
+      if(!new_windows) {
+        set_status(desktop, "out of memory");
+        dlclose(handle);
+        return;
+      }
+      desktop->windows = new_windows;
+    }
+    memmove(&desktop->windows[1], &desktop->windows[0], sizeof(window_t) * desktop->window_count);
+    window_t* w = &desktop->windows[0];
+    memset(w, 0, sizeof(window_t));
+    w->handle = handle;
+    dlerror();
+    void (*init_fn)(desktop_t*, window_t*) = NULL;
+    *(void**)(&init_fn) = dlsym(handle, "window_init");
+    if(dlerror() || !init_fn) {
+      memmove(&desktop->windows[0], &desktop->windows[1], sizeof(window_t) * desktop->window_count);
+      set_status(desktop, "failed to find window_init");
+      dlclose(handle);
+      return;
+    }
+    ++desktop->window_count;
+    init_fn(desktop, w);
+    desktop->dispatch_window_event(desktop, w, WINDOW_EVENT_OPEN, NULL);
+    set_status(desktop, "opened %s", path);
+  } else {
+    set_status(desktop, "failed to load %s: %s", path, dlerror());
+  }
+}
 static void* window_update_wrapper(void* arg) {
   window_thread_arg_t* warg = arg;
   desktop_t* desktop = warg->desktop;
@@ -193,57 +248,13 @@ static bool desktop_update(desktop_t* desktop) {
             hook_payload_t spayload = {
               .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
             call_hooks_after(&spayload, "desktop_state_change");
-            goto skip_open;
-          }
-          void* handle = dlopen(desktop->buf, RTLD_NOW | RTLD_LOCAL);
-          if(handle) {
-            if(desktop->window_count >= desktop->window_capacity) {
-              desktop->window_capacity =
-                desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
-              window_t* new_windows =
-                realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
-              if(!new_windows) {
-                set_status(desktop, "out of memory");
-                desktop->state = STATE_NORMAL;
-                hook_payload_t spayload = {
-                  .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
-                call_hooks_after(&spayload, "desktop_state_change");
-                dlclose(handle);
-                goto skip_open;
-              }
-              desktop->windows = new_windows;
-            }
-            memmove(&desktop->windows[1], &desktop->windows[0],
-                    sizeof(window_t) * desktop->window_count);
-            window_t* w = &desktop->windows[0];
-            memset(w, 0, sizeof(window_t));
-            w->handle = handle;
-            dlerror();
-            void (*init_fn)(desktop_t*, window_t*) = NULL;
-            *(void**)(&init_fn) = dlsym(handle, "window_init");
-            if(dlerror() || !init_fn) {
-              memmove(&desktop->windows[0], &desktop->windows[1],
-                      sizeof(window_t) * desktop->window_count);
-              set_status(desktop, "failed to find window_init");
-              dlclose(handle);
-              desktop->state = STATE_NORMAL;
-              hook_payload_t spayload = {
-                .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
-              call_hooks_after(&spayload, "desktop_state_change");
-              goto skip_open;
-            }
-            ++desktop->window_count;
-            init_fn(desktop, w);
-            desktop->dispatch_window_event(desktop, w, WINDOW_EVENT_OPEN, NULL);
-            set_status(desktop, "opened %s", desktop->buf);
           } else {
-            set_status(desktop, "failed to load %s: %s", desktop->buf, dlerror());
+            desktop_open_window(desktop, desktop->buf);
+            desktop->state = STATE_NORMAL;
+            hook_payload_t spayload = {
+              .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
+            call_hooks_after(&spayload, "desktop_state_change");
           }
-        skip_open:
-          desktop->state = STATE_NORMAL;
-          hook_payload_t spayload = {
-            .desktop = desktop, .window = NULL, .data = (void*)STATE_NORMAL};
-          call_hooks_after(&spayload, "desktop_state_change");
         } else if(idx >= 0 && idx < desktop->window_count) {
           if(desktop->state == STATE_PROMPT_FOCUS) {
             bool ignore = desktop->dispatch_window_event(desktop, &desktop->windows[idx],

@@ -54,6 +54,85 @@ bool dispatch_window_event(desktop_t* desktop, window_t* window, int event, void
   if(window->onevent) ignore = window->onevent(window, desktop, event, data);
   return ignore;
 }
+static void desktop_open_window(desktop_t* desktop, const char* path) {
+  void* handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  char full_path[1024];
+  if(!handle && path[0] != '/' && path[0] != '.') {
+    const char* home = getenv("HOME");
+    char home_lib[512];
+    if(home) snprintf(home_lib, sizeof(home_lib), "%s/.local/lib/ttydesktop", home);
+    const char* search_paths[] = {"./bin",
+                                  getenv("TTYDESKTOP_PATH"),
+                                  home ? home_lib : NULL,
+                                  "/usr/local/lib/ttydesktop",
+                                  "/usr/lib/ttydesktop",
+                                  NULL};
+    for(int i = 0; search_paths[i]; ++i) {
+      snprintf(full_path, sizeof(full_path), "%s/%s", search_paths[i], path);
+      handle = dlopen(full_path, RTLD_NOW | RTLD_LOCAL);
+      if(handle) {
+        path = full_path;
+        break;
+      }
+    }
+  }
+  if(handle) {
+    if(desktop->window_count >= desktop->window_capacity) {
+      desktop->window_capacity = desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
+      window_t* new_windows =
+        realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
+      if(!new_windows) {
+        set_status(desktop, "out of memory");
+        dlclose(handle);
+        return;
+      }
+      desktop->windows = new_windows;
+    }
+    memmove(&desktop->windows[1], &desktop->windows[0], sizeof(window_t) * desktop->window_count);
+    window_t* w = &desktop->windows[0];
+    memset(w, 0, sizeof(window_t));
+    w->handle = handle;
+    dlerror();
+    void (*init_fn)(desktop_t*, window_t*) = NULL;
+    *(void**)(&init_fn) = dlsym(handle, "window_init");
+    if(dlerror() || !init_fn) {
+      memmove(&desktop->windows[0], &desktop->windows[1], sizeof(window_t) * desktop->window_count);
+      set_status(desktop, "failed to find window_init");
+      dlclose(handle);
+      return;
+    }
+    ++desktop->window_count;
+    init_fn(desktop, w);
+    desktop->dispatch_window_event(desktop, w, WINDOW_EVENT_OPEN, NULL);
+    set_status(desktop, "opened %s", path);
+  } else {
+    set_status(desktop, "failed to load %s: %s", path, dlerror());
+  }
+}
+static void desktop_load_autostart_config(desktop_t* desktop) {
+  const char* home = getenv("HOME");
+  char home_config[512] = "";
+  if(home) snprintf(home_config, sizeof(home_config), "%s/.config/ttydesktop/autostart.conf", home);
+  const char* config_files[] = {home ? home_config : NULL, "/etc/ttydesktop/autostart.conf",
+                                "autostart.conf", NULL};
+  FILE* f = NULL;
+  for(int i = 0; config_files[i]; ++i) {
+    if(config_files[i][0] == '\0') continue;
+    f = fopen(config_files[i], "r");
+    if(f) break;
+  }
+  if(!f) return;
+  char line[256];
+  while(fgets(line, sizeof(line), f)) {
+    char* p = line;
+    while(*p && (*p == ' ' || *p == '\t')) ++p;
+    if(*p == '#' || *p == '\0' || *p == '\n') continue;
+    char* end = p + strlen(p) - 1;
+    while(end > p && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) *end-- = '\0';
+    if(*p) desktop_open_window(desktop, p);
+  }
+  fclose(f);
+}
 static void desktop_close_window(desktop_t* desktop, int index) {
   if(index < 0 || index >= desktop->window_count) return;
   desktop->windows[index].close_pending = true;
@@ -96,45 +175,7 @@ bool desktop_update(desktop_t* desktop) {
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) { // enter
         int idx = atoi(desktop->buf);
         if(desktop->state == STATE_PROMPT_OPEN) {
-          void* handle = dlopen(desktop->buf, RTLD_NOW | RTLD_LOCAL);
-          if(handle) {
-            if(desktop->window_count >= desktop->window_capacity) {
-              desktop->window_capacity =
-                desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
-              window_t* new_windows =
-                realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
-              if(!new_windows) {
-                set_status(desktop, "out of memory");
-                desktop->state = STATE_NORMAL;
-                dlclose(handle);
-                goto skip_open;
-              }
-              desktop->windows = new_windows;
-            }
-            memmove(&desktop->windows[1], &desktop->windows[0],
-                    sizeof(window_t) * desktop->window_count);
-            window_t* w = &desktop->windows[0];
-            memset(w, 0, sizeof(window_t));
-            w->handle = handle;
-            dlerror();
-            void (*init_fn)(desktop_t*, window_t*) = NULL;
-            *(void**)(&init_fn) = dlsym(handle, "window_init");
-            if(dlerror() || !init_fn) {
-              memmove(&desktop->windows[0], &desktop->windows[1],
-                      sizeof(window_t) * desktop->window_count);
-              set_status(desktop, "failed to find window_init");
-              dlclose(handle);
-              desktop->state = STATE_NORMAL;
-              goto skip_open;
-            }
-            ++desktop->window_count;
-            init_fn(desktop, w);
-            desktop->dispatch_window_event(desktop, w, WINDOW_EVENT_OPEN, NULL);
-            set_status(desktop, "opened %s", desktop->buf);
-          } else {
-            set_status(desktop, "failed to load %s: %s", desktop->buf, dlerror());
-          }
-        skip_open:
+          desktop_open_window(desktop, desktop->buf);
           desktop->state = STATE_NORMAL;
         } else if(idx >= 0 && idx < desktop->window_count) {
           if(desktop->state == STATE_PROMPT_FOCUS) {
@@ -346,7 +387,7 @@ void desktop_draw(desktop_t* desktop) {
   tw_puts(desktop->statustext, 0, size.h - 1, 0b01110000);
 }
 
-int main() {
+int main(int argc, char** argv) {
   printf("ttydesktop  Copyright (C) 2026  bytetilde\n");
   printf("This program comes with ABSOLUTELY NO WARRANTY; for details see the GNU General Public "
          "License (version 3).\n");
@@ -374,8 +415,10 @@ int main() {
     fprintf(stderr, "failed to allocate statustext\n");
     return 1;
   }
-  snprintf(desktop.statustext, 256, "hello tty desktop");
+  desktop_load_autostart_config(&desktop);
+  for(int i = 1; i < argc; ++i) desktop_open_window(&desktop, argv[i]);
   tw_init();
+  snprintf(desktop.statustext, 256, "hello tty desktop");
   while(1) {
     if(desktop.update(&desktop)) break;
     desktop.draw(&desktop);
