@@ -423,8 +423,9 @@ int main(int argc, char** argv) {
   while(1) {
     if(desktop.update(&desktop)) break;
     desktop.draw(&desktop);
-    if(desktop.flush && desktop.flush(&desktop)) break;
-    else {
+    if(desktop.flush) {
+      if(desktop.flush(&desktop)) break;
+    } else {
       tw_flush();
       usleep(33333);
     }

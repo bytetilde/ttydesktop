@@ -33,6 +33,7 @@ static struct termios orig_termios;
 static pthread_mutex_t tw_mutex = PTHREAD_MUTEX_INITIALIZER;
 int tw_w = 0, tw_h = 0;
 uint16_t* tw_buf = NULL;
+uint16_t* tw_back_buf = NULL;
 static bool tw_keys[2048] = {0};
 static int tw_peek_buf = -1;
 static volatile sig_atomic_t tw_resized = 0;
@@ -48,9 +49,11 @@ static void tw_check_resize() {
   uint16_t* new_buf = realloc(tw_buf, sz.w * sz.h * sizeof(uint16_t));
   if(new_buf) {
     tw_buf = new_buf;
+    tw_back_buf = realloc(tw_back_buf, sz.w * sz.h * sizeof(uint16_t));
     tw_w = sz.w;
     tw_h = sz.h;
     memset(tw_buf, 0, tw_w * tw_h * sizeof(uint16_t));
+    if(tw_back_buf) memset(tw_back_buf, 0, tw_w * tw_h * sizeof(uint16_t));
   }
 }
 tw_wh_t tw_get_size() {
@@ -74,12 +77,16 @@ void tw_init() {
   tw_w = sz.w;
   tw_h = sz.h;
   tw_buf = malloc(tw_w * tw_h * sizeof(uint16_t));
-  if(!tw_buf) {
+  tw_back_buf = malloc(tw_w * tw_h * sizeof(uint16_t));
+  if(!tw_buf || !tw_back_buf) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+    if(tw_buf) free(tw_buf);
+    if(tw_back_buf) free(tw_back_buf);
     fprintf(stderr, "tw: out of memory\n");
     exit(1);
   }
   memset(tw_buf, 0, tw_w * tw_h * sizeof(uint16_t));
+  memset(tw_back_buf, 0, tw_w * tw_h * sizeof(uint16_t));
   signal(SIGWINCH, tw_sigwinch_handler);
   atexit(tw_deinit);
 }
@@ -90,7 +97,9 @@ void tw_deinit() {
   fflush(stdout);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
   free(tw_buf);
+  free(tw_back_buf);
   tw_buf = NULL;
+  tw_back_buf = NULL;
 }
 static inline void _tw_putc(char c, int x, int y, char attr) {
   if(x < 0 || x >= tw_w || y < 0 || y >= tw_h) return;
@@ -153,10 +162,19 @@ void tw_flush_region(int x, int y, int w, int h) {
   char current_attr = -1;
   const int threshold = 64000;
   for(int j = y; j < y + h; j++) {
-    int n = snprintf(out + ptr, sizeof(out) - ptr, "\033[%d;%dH", j + 1, x + 1);
-    if(n > 0) ptr += (n >= (int)(sizeof(out) - ptr)) ? (sizeof(out) - ptr - 1) : n;
+    bool moved = false;
     for(int i = x; i < x + w; i++) {
       uint16_t val = tw_buf[j * tw_w + i];
+      if(val == tw_back_buf[j * tw_w + i]) {
+        moved = false;
+        continue;
+      }
+      tw_back_buf[j * tw_w + i] = val;
+      if(!moved) {
+        int n = snprintf(out + ptr, sizeof(out) - ptr, "\033[%d;%dH", j + 1, i + 1);
+        if(n > 0) ptr += (n >= (int)(sizeof(out) - ptr)) ? (sizeof(out) - ptr - 1) : n;
+        moved = true;
+      }
       char attr = (val >> 8) & 0xFF;
       char c = val & 0xFF;
       if(attr != current_attr) {
@@ -174,6 +192,7 @@ void tw_flush_region(int x, int y, int w, int h) {
         tw_write_all(out, ptr);
         ptr = 0;
         current_attr = -1;
+        moved = false;
       }
     }
   }

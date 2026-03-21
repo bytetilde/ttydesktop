@@ -46,6 +46,18 @@ bool call_hooks(hook_payload_t* payload, const char* hook_point) {
   unsigned long long h = hash(hook_point);
   pthread_mutex_lock(&hookman->lock);
   hook_t* hooks = hm_get(hookman->hooks, h);
+  while(hooks) {
+    if(hooks->function(payload)) break;
+    hooks = hooks->next;
+  }
+  pthread_mutex_unlock(&hookman->lock);
+  return hooks != NULL;
+}
+bool call_hooks_but_it_returns_the_return_value(hook_payload_t* payload, const char* hook_point) {
+  if(!hookman) return false;
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks, h);
   bool result = false;
   while(hooks) {
     if(hooks->function(payload)) {
@@ -534,15 +546,15 @@ static void desktop_draw(desktop_t* desktop) {
 }
 static bool desktop_flush(desktop_t* desktop) {
   hook_payload_t payload = {.desktop = desktop, .window = NULL, .data = NULL};
-  bool result = false;
   if(call_hooks_before(&payload, "desktop_flush")) return true;
-  if(call_hooks(&payload, "desktop_flush")) result = true;
+  if(call_hooks(&payload, "desktop_flush"))
+    ;
   else {
     tw_flush();
     usleep(33333);
   }
   call_hooks_after(&payload, "desktop_flush");
-  return result;
+  return false;
 }
 static bool dispatch_window_event(desktop_t* desktop, window_t* window, int event, void* data) {
   hook_payload_t payload = {.desktop = desktop, .window = window, .data = data};
@@ -555,11 +567,12 @@ static bool dispatch_window_event(desktop_t* desktop, window_t* window, int even
   if(!hookman) return window->onevent ? window->onevent(window, desktop, event, data) : false;
   if(call_hooks_before(&payload, event_name)) return true;
   bool result = false;
-  unsigned long long h = hash(event_name);
-  pthread_mutex_lock(&hookman->lock);
-  bool has_override = hm_get(hookman->hooks, h) != NULL;
-  pthread_mutex_unlock(&hookman->lock);
-  if(has_override) result = call_hooks(&payload, event_name);
+  // unsigned long long h = hash(event_name);
+  // pthread_mutex_lock(&hookman->lock);
+  // bool has_override = hm_get(hookman->hooks, h) != NULL;
+  // pthread_mutex_unlock(&hookman->lock);
+  // if(has_override) result = call_hooks(&payload, event_name);
+  if(call_hooks_but_it_returns_the_return_value(&payload, event_name)) result = true;
   else if(hookman->orig_dispatch_window_event)
     result = hookman->orig_dispatch_window_event(desktop, window, event, data);
   else result = window->onevent ? window->onevent(window, desktop, event, data) : false;
@@ -575,8 +588,14 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     if(desktop->draw == desktop_draw) desktop->draw = hookman->orig_desktop_draw;
     if(desktop->dispatch_window_event == dispatch_window_event)
       desktop->dispatch_window_event = hookman->orig_dispatch_window_event;
-    if(window->title) free(window->title);
-    if(window->content) free(window->content);
+    if(window->title) {
+      free(window->title);
+      window->title = NULL;
+    }
+    if(window->content) {
+      free(window->content);
+      window->content = NULL;
+    }
     if(window->data) {
       hookman_t* hm = (hookman_t*)window->data;
       hm_destroy_hooks(hm->hooks);

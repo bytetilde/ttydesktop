@@ -1,15 +1,32 @@
+/**
+ * Copyright (C) 2026 bytetilde
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "commonapi.h"
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #define THREADS 4
 
-typedef struct {
+typedef struct mandelbrot_state_t {
   double x_min, x_max, y_min, y_max;
   int max_iter;
   bool needs_redraw;
 } mandelbrot_state_t;
-typedef struct {
+typedef struct thread_arg_t {
   int start_y, end_y;
   int width, height;
   window_t* window;
@@ -66,8 +83,14 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   (void)desktop;
   mandelbrot_state_t* s = window->data;
   if(event == WINDOW_EVENT_CLOSE) {
-    free(window->title);
-    free(window->content);
+    if(window->title) {
+      free(window->title);
+      window->title = NULL;
+    }
+    if(window->content) {
+      free(window->content);
+      window->content = NULL;
+    }
     free(s);
     window->data = NULL;
   }

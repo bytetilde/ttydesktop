@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
+typedef struct bouncy_state_t {
   int bx, by, bvx, bvy;
   int fskip;
   int self_index;
@@ -31,8 +31,14 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   (void)data;
   bouncy_state_t* s = window->data;
   if(event == WINDOW_EVENT_CLOSE) {
-    free(window->title);
-    free(window->content);
+    if(window->title) {
+      free(window->title);
+      window->title = NULL;
+    }
+    if(window->content) {
+      free(window->content);
+      window->content = NULL;
+    }
     free(s);
     window->data = NULL;
     return false;
