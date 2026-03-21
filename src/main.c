@@ -127,8 +127,8 @@ bool desktop_update(desktop_t* desktop) {
               desktop->state = STATE_NORMAL;
               goto skip_open;
             }
-            init_fn(desktop, w);
             ++desktop->window_count;
+            init_fn(desktop, w);
             desktop->dispatch_window_event(desktop, w, WINDOW_EVENT_OPEN, NULL);
             set_status(desktop, "opened %s", desktop->buf);
           } else {

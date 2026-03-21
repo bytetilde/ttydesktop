@@ -153,7 +153,8 @@ void tw_flush_region(int x, int y, int w, int h) {
   char current_attr = -1;
   const int threshold = 64000;
   for(int j = y; j < y + h; j++) {
-    ptr += snprintf(out + ptr, sizeof(out) - ptr, "\033[%d;%dH", j + 1, x + 1);
+    int n = snprintf(out + ptr, sizeof(out) - ptr, "\033[%d;%dH", j + 1, x + 1);
+    if(n > 0) ptr += (n >= (int)(sizeof(out) - ptr)) ? (sizeof(out) - ptr - 1) : n;
     for(int i = x; i < x + w; i++) {
       uint16_t val = tw_buf[j * tw_w + i];
       char attr = (val >> 8) & 0xFF;
@@ -163,8 +164,9 @@ void tw_flush_region(int x, int y, int w, int h) {
         int fg_bright = (attr >> 3) & 1;
         int bg = (attr >> 4) & 0x07;
         int bg_bright = (attr >> 7) & 1;
-        ptr += snprintf(out + ptr, sizeof(out) - ptr, "\033[0;%d;%dm", (fg_bright ? 90 : 30) + fg,
+        int n = snprintf(out + ptr, sizeof(out) - ptr, "\033[0;%d;%dm", (fg_bright ? 90 : 30) + fg,
                         (bg_bright ? 100 : 40) + bg);
+        if(n > 0) ptr += (n >= (int)(sizeof(out) - ptr)) ? (sizeof(out) - ptr - 1) : n;
         current_attr = attr;
       }
       out[ptr++] = c ? c : ' ';
@@ -175,7 +177,8 @@ void tw_flush_region(int x, int y, int w, int h) {
       }
     }
   }
-  ptr += snprintf(out + ptr, sizeof(out) - ptr, "\033[0m");
+  int n = snprintf(out + ptr, sizeof(out) - ptr, "\033[0m");
+  if(n > 0) ptr += (n >= (int)(sizeof(out) - ptr)) ? (sizeof(out) - ptr - 1) : n;
   if(ptr > 0) tw_write_all(out, ptr);
   pthread_mutex_unlock(&tw_mutex);
 }
@@ -278,7 +281,7 @@ int tw_getch() {
   }
   if(key != -1) {
     memset(tw_keys, 0, sizeof(tw_keys));
-    if(key < 2048) tw_keys[key] = true;
+    if(key >= 0 && key < 2048) tw_keys[key] = true;
   }
   return key;
 }

@@ -1,5 +1,5 @@
 CC := clang
-CFLAGS := -Wall -Wextra -Iinclude -MMD -MP -fPIC -pthread
+CFLAGS := -Wall -Wextra -Iinclude -MMD -MP -fPIC -pthread -O0 -g
 LDFLAGS := -fuse-ld=lld -pthread -ldl -rdynamic
 
 TARGET := ttydesktop

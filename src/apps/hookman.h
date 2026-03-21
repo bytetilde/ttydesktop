@@ -146,10 +146,11 @@ typedef struct hookman_t {
 #define HOOKMAN_MAGIC 0x1ae71de1ac6913ULL
 
 static inline hookman_t* hookman_find(desktop_t* desktop) {
-  // big big bandaid that assumes the function is called only in window_init
-  for(int i = 0; i <= desktop->window_count; ++i) {
+  for(int i = 0; i < desktop->window_count; ++i) {
     window_t* win = desktop->windows + i;
-    if(win->data && ((hookman_t*)win->data)->magic == HOOKMAN_MAGIC) return (hookman_t*)win->data;
+    if(win->title && strcmp(win->title, "hookman") == 0 && win->data &&
+       ((hookman_t*)win->data)->magic == HOOKMAN_MAGIC)
+      return (hookman_t*)win->data;
   }
   return NULL;
 }

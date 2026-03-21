@@ -27,6 +27,8 @@ typedef struct {
   int self_index;
 } bouncy_state_t;
 bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
+  (void)desktop;
+  (void)data;
   bouncy_state_t* s = window->data;
   if(event == WINDOW_EVENT_CLOSE) {
     free(window->title);
@@ -38,7 +40,7 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   if(event == WINDOW_EVENT_RESIZE) {
     short* tmp = realloc(window->content, window->w * window->h * sizeof(short));
     if(!tmp) {
-      if(desktop->close_window) desktop->close_window(desktop, s->self_index);
+      window->close_pending = true;
       return false;
     }
     window->content = tmp;
@@ -46,7 +48,6 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     if(s->by >= window->h) s->by = window->h - 1;
   }
   if(event == WINDOW_EVENT_FOCUS) return true;
-  (void)data;
   return false;
 }
 void update(window_t* window, desktop_t* desktop) {
@@ -55,10 +56,22 @@ void update(window_t* window, desktop_t* desktop) {
   bouncy_state_t* s = window->data;
   s->fskip = (s->fskip + 1) % 4;
   if(s->fskip) return;
-  if(s->bx + s->bvx < 0 || s->bx + s->bvx >= window->w) s->bvx = -s->bvx;
-  if(s->by + s->bvy < 0 || s->by + s->bvy >= window->h) s->bvy = -s->bvy;
   s->bx += s->bvx;
   s->by += s->bvy;
+  if(s->bx < 0) {
+    s->bx = 0;
+    s->bvx = abs(s->bvx);
+  } else if(s->bx >= window->w) {
+    s->bx = window->w - 1;
+    s->bvx = -abs(s->bvx);
+  }
+  if(s->by < 0) {
+    s->by = 0;
+    s->bvy = abs(s->bvy);
+  } else if(s->by >= window->h) {
+    s->by = window->h - 1;
+    s->bvy = -abs(s->bvy);
+  }
 }
 void draw(window_t* window, desktop_t* desktop) {
   (void)desktop;

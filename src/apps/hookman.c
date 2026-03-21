@@ -26,6 +26,23 @@
 #include <string.h>
 static hookman_t* hookman = NULL;
 
+static void hook_list_free(hook_t* list) {
+  while(list) {
+    hook_t* next = list->next;
+    free(list);
+    list = next;
+  }
+}
+static void hm_destroy_hooks(hashmap_t* map) {
+  if(!map) return;
+  for(size_t i = 0; i < map->capacity; ++i) {
+    if(map->buckets[i].occupied) {
+      hook_list_free((hook_t*)map->buckets[i].value);
+    }
+  }
+  hm_destroy(map);
+}
+
 bool call_hooks(hook_payload_t* payload, const char* hook_point) {
   unsigned long long h = hash(hook_point);
   pthread_mutex_lock(&hookman->lock);
@@ -209,8 +226,8 @@ static bool desktop_update(desktop_t* desktop) {
               call_hooks_after(&spayload, "desktop_state_change");
               goto skip_open;
             }
-            init_fn(desktop, w);
             ++desktop->window_count;
+            init_fn(desktop, w);
             desktop->dispatch_window_event(desktop, w, WINDOW_EVENT_OPEN, NULL);
             set_status(desktop, "opened %s", desktop->buf);
           } else {
@@ -403,7 +420,8 @@ static bool desktop_update(desktop_t* desktop) {
     for(int i = desktop->window_count - 1; i >= 0; --i) {
       if(!desktop->windows[i].close_pending) continue;
       desktop->dispatch_window_event(desktop, &desktop->windows[i], WINDOW_EVENT_CLOSE, NULL);
-      if(desktop->windows[i].handle) dlclose(desktop->windows[i].handle);
+      if(desktop->windows[i].handle && desktop->windows[i].data != hookman)
+        dlclose(desktop->windows[i].handle);
       for(int j = i; j < desktop->window_count - 1; ++j)
         desktop->windows[j] = desktop->windows[j + 1];
       --desktop->window_count;
@@ -525,6 +543,16 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
       desktop->dispatch_window_event = hookman->orig_dispatch_window_event;
     if(window->title) free(window->title);
     if(window->content) free(window->content);
+    if(window->data) {
+      hookman_t* hm = (hookman_t*)window->data;
+      hm_destroy_hooks(hm->hooks);
+      hm_destroy_hooks(hm->hooks_before);
+      hm_destroy_hooks(hm->hooks_after);
+      hm_destroy(hm->exports);
+      free(hm);
+      window->data = NULL;
+      hookman = NULL;
+    }
   }
   if(event == WINDOW_EVENT_RESIZE) return true;
   return false;
@@ -555,6 +583,7 @@ void window_init(desktop_t* desktop, window_t* win) {
     win->close_pending = 1;
     return;
   }
+  win->title = strdup("hookman");
   win->update = update;
   win->draw = draw;
   win->onevent = onevent;

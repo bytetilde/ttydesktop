@@ -72,8 +72,13 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     window->data = NULL;
   }
   if(event == WINDOW_EVENT_RESIZE) {
-    window->content = realloc(window->content, window->w * window->h * sizeof(short));
-    s->needs_redraw = true;
+    short* tmp = realloc(window->content, window->w * window->h * sizeof(short));
+    if(tmp) {
+      window->content = tmp;
+      s->needs_redraw = true;
+    } else {
+      window->close_pending = 1;
+    }
   }
   if(event == WINDOW_EVENT_KEY) {
     long key = (long)data;
