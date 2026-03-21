@@ -56,22 +56,24 @@ void update(window_t* window, desktop_t* desktop) {
   bouncy_state_t* s = window->data;
   s->fskip = (s->fskip + 1) % 4;
   if(s->fskip) return;
-  s->bx += s->bvx;
-  s->by += s->bvy;
-  if(s->bx < 0) {
-    s->bx = 0;
+  int nbx = s->bx + s->bvx;
+  int nby = s->by + s->bvy;
+  if(nbx < 0) {
+    nbx = -nbx;
     s->bvx = abs(s->bvx);
-  } else if(s->bx >= window->w) {
-    s->bx = window->w - 1;
+  } else if(nbx >= window->w) {
+    nbx = 2 * (window->w - 1) - nbx;
     s->bvx = -abs(s->bvx);
   }
-  if(s->by < 0) {
-    s->by = 0;
+  if(nby < 0) {
+    nby = -nby;
     s->bvy = abs(s->bvy);
-  } else if(s->by >= window->h) {
-    s->by = window->h - 1;
+  } else if(nby >= window->h) {
+    nby = 2 * (window->h - 1) - nby;
     s->bvy = -abs(s->bvy);
   }
+  s->bx = nbx;
+  s->by = nby;
 }
 void draw(window_t* window, desktop_t* desktop) {
   (void)desktop;
