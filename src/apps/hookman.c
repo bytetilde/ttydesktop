@@ -44,6 +44,7 @@ static void hm_destroy_hooks(hashmap_t* map) {
 }
 
 bool call_hooks(hook_payload_t* payload, const char* hook_point) {
+  if(!hookman) return false;
   unsigned long long h = hash(hook_point);
   pthread_mutex_lock(&hookman->lock);
   hook_t* hooks = hm_get(hookman->hooks, h);
@@ -56,6 +57,7 @@ bool call_hooks(hook_payload_t* payload, const char* hook_point) {
   return true;
 }
 bool call_hooks_before(hook_payload_t* payload, const char* hook_point) {
+  if(!hookman) return false;
   unsigned long long h = hash(hook_point);
   pthread_mutex_lock(&hookman->lock);
   hook_t* hooks = hm_get(hookman->hooks_before, h);
@@ -68,6 +70,7 @@ bool call_hooks_before(hook_payload_t* payload, const char* hook_point) {
   return false;
 }
 void call_hooks_after(hook_payload_t* payload, const char* hook_point) {
+  if(!hookman) return;
   unsigned long long h = hash(hook_point);
   pthread_mutex_lock(&hookman->lock);
   hook_t* hooks = hm_get(hookman->hooks_after, h);
@@ -309,7 +312,8 @@ static bool desktop_update(desktop_t* desktop) {
               desktop->state = STATE_NORMAL;
               set_status(desktop, "window ignored close");
             } else {
-              if(desktop->windows[idx].handle) dlclose(desktop->windows[idx].handle);
+              if(desktop->windows[idx].handle && desktop->windows[idx].data != hookman)
+                dlclose(desktop->windows[idx].handle);
               for(int i = idx; i < desktop->window_count - 1; ++i)
                 desktop->windows[i] = desktop->windows[i + 1];
               --desktop->window_count;
@@ -521,6 +525,7 @@ static bool dispatch_window_event(desktop_t* desktop, window_t* window, int even
     "window_event_close",  "window_event_open",  "window_event_close_force",
   };
   const char* event_name = (event >= 0 && event <= 8) ? event_names[event] : "window_event_unknown";
+  if(!hookman) return window->onevent ? window->onevent(window, desktop, event, data) : false;
   if(call_hooks_before(&payload, event_name)) return true;
   bool result = false;
   unsigned long long h = hash(event_name);
@@ -528,7 +533,11 @@ static bool dispatch_window_event(desktop_t* desktop, window_t* window, int even
   bool has_override = hm_get(hookman->hooks, h) != NULL;
   pthread_mutex_unlock(&hookman->lock);
   if(has_override) result = call_hooks(&payload, event_name);
-  else result = hookman->orig_dispatch_window_event(desktop, window, event, data);
+  else {
+    if(hookman->orig_dispatch_window_event)
+      result = hookman->orig_dispatch_window_event(desktop, window, event, data);
+    else result = window->onevent ? window->onevent(window, desktop, event, data) : false;
+  }
   call_hooks_after(&payload, event_name);
   return result;
 }
