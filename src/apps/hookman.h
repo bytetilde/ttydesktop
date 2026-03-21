@@ -141,6 +141,7 @@ typedef struct hookman_t {
   hashmap_t* exports;
   bool (*orig_desktop_update)(desktop_t* desktop);
   void (*orig_desktop_draw)(desktop_t* desktop);
+  bool (*orig_desktop_flush)(desktop_t* desktop);
   bool (*orig_dispatch_window_event)(desktop_t* desktop, window_t* window, int event, void* data);
 } hookman_t;
 #define HOOKMAN_MAGIC 0x1ae71de1ac6913ULL

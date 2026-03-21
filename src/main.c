@@ -406,6 +406,7 @@ int main(int argc, char** argv) {
     .oh = 0,
     .update = desktop_update,
     .draw = desktop_draw,
+    .flush = NULL,
     .onkey = NULL,
     .close_window = desktop_close_window,
     .dispatch_window_event = dispatch_window_event,
@@ -422,8 +423,11 @@ int main(int argc, char** argv) {
   while(1) {
     if(desktop.update(&desktop)) break;
     desktop.draw(&desktop);
-    tw_flush();
-    usleep(33333);
+    if(desktop.flush && desktop.flush(&desktop)) break;
+    else {
+      tw_flush();
+      usleep(33333);
+    }
   }
   for(int i = desktop.window_count - 1; i >= 0; --i)
     if(desktop.dispatch_window_event(&desktop, &desktop.windows[i], WINDOW_EVENT_CLOSE, NULL))

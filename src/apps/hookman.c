@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 static hookman_t* hookman = NULL;
 
 static void hook_list_free(hook_t* list) {
@@ -531,6 +532,18 @@ static void desktop_draw(desktop_t* desktop) {
   call_hooks_after(&payload, "desktop_status_draw");
   call_hooks_after(&payload, "desktop_draw");
 }
+static bool desktop_flush(desktop_t* desktop) {
+  hook_payload_t payload = {.desktop = desktop, .window = NULL, .data = NULL};
+  bool result = false;
+  if(call_hooks_before(&payload, "desktop_flush")) return true;
+  if(call_hooks(&payload, "desktop_flush")) result = true;
+  else {
+    tw_flush();
+    usleep(33333);
+  }
+  call_hooks_after(&payload, "desktop_flush");
+  return result;
+}
 static bool dispatch_window_event(desktop_t* desktop, window_t* window, int event, void* data) {
   hook_payload_t payload = {.desktop = desktop, .window = window, .data = data};
   const char* event_names[] = {
@@ -588,6 +601,10 @@ void update(window_t* window, desktop_t* desktop) {
     hookman->orig_desktop_draw = desktop->draw;
     desktop->draw = desktop_draw;
   }
+  if(desktop->flush != desktop_flush) {
+    hookman->orig_desktop_flush = desktop->flush;
+    desktop->flush = desktop_flush;
+  }
   if(desktop->dispatch_window_event != dispatch_window_event) {
     hookman->orig_dispatch_window_event = desktop->dispatch_window_event;
     desktop->dispatch_window_event = dispatch_window_event;
@@ -621,9 +638,11 @@ void window_init(desktop_t* desktop, window_t* win) {
   hm->exports = hm_create(16);
   hm->orig_desktop_update = desktop->update;
   hm->orig_desktop_draw = desktop->draw;
+  hm->orig_desktop_flush = desktop->flush;
   hm->orig_dispatch_window_event = desktop->dispatch_window_event;
   desktop->update = desktop_update;
   desktop->draw = desktop_draw;
+  desktop->flush = desktop_flush;
   desktop->dispatch_window_event = dispatch_window_event;
   hookman = hm;
   win->data = hm;

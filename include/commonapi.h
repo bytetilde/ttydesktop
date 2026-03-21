@@ -75,6 +75,7 @@ typedef struct desktop_t {
   int ox, oy, ow, oh;
   bool (*update)(desktop_t* desktop);
   void (*draw)(desktop_t* desktop);
+  bool (*flush)(desktop_t* desktop);
   bool (*onkey)(desktop_t* desktop, int key);
   void (*close_window)(desktop_t* desktop, int index);
   bool (*dispatch_window_event)(desktop_t* desktop, window_t* window, int event, void* data);
