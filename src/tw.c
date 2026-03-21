@@ -49,7 +49,8 @@ static void tw_check_resize() {
   uint16_t* new_buf = realloc(tw_buf, sz.w * sz.h * sizeof(uint16_t));
   if(new_buf) {
     tw_buf = new_buf;
-    tw_back_buf = realloc(tw_back_buf, sz.w * sz.h * sizeof(uint16_t));
+    uint16_t* new_back_buf = realloc(tw_back_buf, sz.w * sz.h * sizeof(uint16_t));
+    if(new_back_buf) tw_back_buf = new_back_buf;
     tw_w = sz.w;
     tw_h = sz.h;
     memset(tw_buf, 0, tw_w * tw_h * sizeof(uint16_t));

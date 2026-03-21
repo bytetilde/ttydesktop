@@ -39,7 +39,7 @@ run: all-desktop
 	./$(BIN_DIR)/$(TARGET)
 
 valgrind: all-desktop
-	valgrind --leak-check=full ./$(BIN_DIR)/$(TARGET)
+	valgrind --leak-check=full --show-leak-kinds=all ./$(BIN_DIR)/$(TARGET)
 
 -include $(DEPS)
 

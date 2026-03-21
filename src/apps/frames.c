@@ -48,6 +48,7 @@ void* after_desktop_draw(hook_payload_t* payload) {
   clock_gettime(CLOCK_MONOTONIC, &ts);
   unsigned long long now = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
   unsigned long long elapsed = now - fs->start_time;
+  if(elapsed == 0) elapsed = 1;
   fs->last_elapsed_us = elapsed / 1000;
   fs->last_fps = 1000000000.0 / elapsed;
   if(fs->last_fps > 1000) fs->last_fps = 1000;
@@ -153,6 +154,7 @@ void window_init(desktop_t* desktop, window_t* win) {
   win->title = strdup("frames");
   win->w = 28;
   win->h = 2;
+  win->unresizable = true;
   win->x = tw_w - win->w;
   win->y = 0;
   win->content = malloc(win->w * win->h * sizeof(short));

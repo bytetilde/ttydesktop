@@ -450,7 +450,12 @@ static bool desktop_update(desktop_t* desktop) {
     free(args);
     for(int i = desktop->window_count - 1; i >= 0; --i) {
       if(!desktop->windows[i].close_pending) continue;
-      desktop->dispatch_window_event(desktop, &desktop->windows[i], WINDOW_EVENT_CLOSE, NULL);
+      bool ignore =
+        desktop->dispatch_window_event(desktop, &desktop->windows[i], WINDOW_EVENT_CLOSE, NULL);
+      if(ignore) {
+        desktop->windows[i].close_pending = false;
+        continue;
+      }
       if(desktop->windows[i].handle && desktop->windows[i].data != hookman)
         dlclose(desktop->windows[i].handle);
       for(int j = i; j < desktop->window_count - 1; ++j)
@@ -515,6 +520,7 @@ static void desktop_draw(desktop_t* desktop) {
             snprintf(tbuf, sizeof(tbuf), "%d", i);
             memmove(tbuf, tbuf + (idx_len - draww), draww + 1);
           } else tbuf[0] = '\0';
+          if(draww > 0 && (int)strlen(tbuf) > draww) tbuf[draww] = '\0';
           if(tbuf[0] != '\0') tw_printf(window->x, window->y, title_attr, "%s", tbuf);
         }
         call_hooks_after(&tpayload, "desktop_window_title");

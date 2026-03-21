@@ -324,7 +324,12 @@ bool desktop_update(desktop_t* desktop) {
     free(args);
     for(int i = desktop->window_count - 1; i >= 0; --i) {
       if(!desktop->windows[i].close_pending) continue;
-      desktop->dispatch_window_event(desktop, &desktop->windows[i], WINDOW_EVENT_CLOSE, NULL);
+      bool ignore =
+        desktop->dispatch_window_event(desktop, &desktop->windows[i], WINDOW_EVENT_CLOSE, NULL);
+      if(ignore) {
+        desktop->windows[i].close_pending = false;
+        continue;
+      }
       if(desktop->windows[i].handle) dlclose(desktop->windows[i].handle);
       for(int j = i; j < desktop->window_count - 1; ++j)
         desktop->windows[j] = desktop->windows[j + 1];
