@@ -347,7 +347,7 @@ void desktop_draw(desktop_t* desktop) {
 }
 
 int main() {
-  printf("ttydesktop  Copyrighn't (C) 2026  bytetilde\n");
+  printf("ttydesktop  Copyright (C) 2026  bytetilde\n");
   printf("This program comes with ABSOLUTELY NO WARRANTY; for details see the GNU General Public "
          "License (version 3).\n");
   printf("This is free software, and you are welcome to redistribute it\n");
