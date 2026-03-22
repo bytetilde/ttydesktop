@@ -384,6 +384,10 @@ bool desktop_update(desktop_t* desktop) {
         desktop->windows[i].close_pending = false;
         continue;
       }
+      if(desktop->state != DESKTOP_STATE_NORMAL) {
+        if(desktop->target == i) desktop->state = DESKTOP_STATE_NORMAL;
+        else if(desktop->target > i) --desktop->target;
+      }
       if(desktop->windows[i].handle) dlclose(desktop->windows[i].handle);
       for(int j = i; j < desktop->window_count - 1; ++j)
         desktop->windows[j] = desktop->windows[j + 1];
