@@ -204,8 +204,7 @@ static bool desktop_update(desktop_t* desktop) {
   hook_payload_t payload = {.desktop = desktop, .window = NULL, .data = NULL};
   if(call_hooks_before(&payload, "desktop_update")) return false;
   if(call_hooks(&payload, "desktop_update")) return false;
-  if(desktop->statustimer > 0 && desktop->state != DESKTOP_STATE_MOVING &&
-     desktop->state != DESKTOP_STATE_RESIZING && desktop->state != DESKTOP_STATE_FOCUSED) {
+  if(desktop->statustimer > 0 && desktop->state == DESKTOP_STATE_NORMAL) {
     hook_payload_t tpayload = {.desktop = desktop, .window = NULL, .data = &desktop->statustimer};
     if(call_hooks_before(&tpayload, "desktop_status_update"))
       ;

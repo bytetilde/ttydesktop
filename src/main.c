@@ -145,8 +145,7 @@ static void desktop_close_window(desktop_t* desktop, int index) {
   desktop->windows[index].close_pending = true;
 }
 bool desktop_update(desktop_t* desktop) {
-  if(desktop->statustimer > 0 && desktop->state != DESKTOP_STATE_MOVING &&
-     desktop->state != DESKTOP_STATE_RESIZING && desktop->state != DESKTOP_STATE_FOCUSED) {
+  if(desktop->statustimer > 0 && desktop->state == DESKTOP_STATE_NORMAL) {
     desktop->statustimer -= 0.033333;
     if(desktop->statustimer <= 0) {
       int visible = 0;

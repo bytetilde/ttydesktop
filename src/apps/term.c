@@ -18,7 +18,9 @@
 #include "commonapi.h"
 #include "tw.h"
 #include <ctype.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <pty.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,20 +43,39 @@ typedef struct term_state_t {
   int params[16];
   int param_count;
   int saved_cx, saved_cy;
+  bool is_extended;
+  bool show_cursor_mode;
+  pthread_t tid;
+  pthread_mutex_t mutex;
+  bool exited;
+  bool cursor_visible;
+  int cursor_x, cursor_y;
+  short saved_cell;
 } term_state_t;
 
 bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   (void)desktop;
   term_state_t* ts = window->data;
   if(!ts) return false;
-  if(event == WINDOW_EVENT_CLOSE) {
-    kill(ts->pid, SIGHUP);
-    close(ts->master_fd);
-    waitpid(ts->pid, NULL, WNOHANG);
+  if(event == WINDOW_EVENT_CLOSE || event == WINDOW_EVENT_CLOSE_FORCE) {
+    if(ts->master_fd >= 0) {
+      int fd = ts->master_fd;
+      ts->master_fd = -1;
+      close(fd);
+    }
+    if(ts->pid > 0) {
+      kill(ts->pid, SIGHUP);
+      waitpid(ts->pid, NULL, WNOHANG);
+    }
+    if(ts->tid) pthread_join(ts->tid, NULL);
+    pthread_mutex_destroy(&ts->mutex);
     free(ts);
     free(window->title);
     free(window->content);
     window->data = NULL;
+    window->title = NULL;
+    window->content = NULL;
+    return false;
   } else if(event == WINDOW_EVENT_RESIZE) {
     window_resize_event_t* ev = data;
     (void)ev;
@@ -78,13 +99,27 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   }
   return false;
 }
-void update(window_t* window, desktop_t* desktop) {
-  (void)desktop;
+void* term_read_thread(void* arg) {
+  window_t* window = arg;
   term_state_t* ts = window->data;
-  if(!ts) return;
-  char buf[256];
-  int n = read(ts->master_fd, buf, sizeof(buf));
-  if(n > 0) {
+  char buf[4096];
+  while(1) {
+    int fd = ts->master_fd;
+    if(fd < 0) break;
+    int n = read(fd, buf, sizeof(buf));
+    if(n <= 0) {
+      if(n == -1 && (errno == EAGAIN || errno == EINTR)) continue;
+      ts->exited = true;
+      break;
+    }
+    pthread_mutex_lock(&ts->mutex);
+    if(ts->cursor_visible) {
+      if(ts->cursor_y >= 0 && ts->cursor_y < window->h && ts->cursor_x >= 0 &&
+         ts->cursor_x < window->w) {
+        window->content[ts->cursor_y * window->w + ts->cursor_x] = ts->saved_cell;
+      }
+      ts->cursor_visible = false;
+    }
     for(int i = 0; i < n; ++i) {
       char c = buf[i];
       if(ts->state == TERM_STATE_NORMAL) {
@@ -118,99 +153,149 @@ void update(window_t* window, desktop_t* desktop) {
         if(c == '[') {
           ts->state = TERM_STATE_CSI;
           ts->param_count = 0;
+          ts->is_extended = false;
           for(int p = 0; p < 16; ++p) ts->params[p] = 0;
+        } else if(c == ']') {
+          ts->state = TERM_STATE_OSC;
         } else ts->state = TERM_STATE_NORMAL;
+      } else if(ts->state == TERM_STATE_OSC) {
+        if(c == '\007') ts->state = TERM_STATE_NORMAL;
+        else if(c == '\033') ts->state = TERM_STATE_ESCAPE;
       } else if(ts->state == TERM_STATE_CSI) {
         if(c >= '0' && c <= '9')
           ts->params[ts->param_count] = ts->params[ts->param_count] * 10 + (c - '0');
         else if(c == ';') {
           if(ts->param_count < 15) ++ts->param_count;
         } else if(c == '?') {
-          // advanced mode set prefix or something
-          // later
+          ts->is_extended = true;
         } else {
           int p1 = ts->params[0] == 0 ? 1 : ts->params[0];
           int p2 = ts->params[1] == 0 ? 1 : ts->params[1];
-          switch(c) {
-            case 'A':
-              ts->cy -= p1;
-              if(ts->cy < 0) ts->cy = 0;
-              break;
-            case 'B':
-              ts->cy += p1;
-              if(ts->cy >= window->h) ts->cy = window->h - 1;
-              break;
-            case 'C':
-              ts->cx += p1;
-              if(ts->cx >= window->w) ts->cx = window->w - 1;
-              break;
-            case 'D':
-              ts->cx -= p1;
-              if(ts->cx < 0) ts->cx = 0;
-              break;
-            case 'H':
-            case 'f':
-              ts->cy = p1 - 1;
-              ts->cx = p2 - 1;
-              if(ts->cy < 0) ts->cy = 0;
-              if(ts->cy >= window->h) ts->cy = window->h - 1;
-              if(ts->cx < 0) ts->cx = 0;
-              if(ts->cx >= window->w) ts->cx = window->w - 1;
-              break;
-            case 'J': {
-              int clear_type = ts->params[0];
-              if(clear_type == 0) {
-                for(int j = ts->cy; j < window->h; ++j) {
-                  int start = (j == ts->cy) ? ts->cx : 0;
-                  for(int i = start; i < window->w; ++i)
-                    window->content[j * window->w + i] = (ts->current_attr << 8) | ' ';
+          if(ts->is_extended) {
+            if(c == 'h') {
+              if(ts->params[0] == 25) ts->show_cursor_mode = true;
+            } else if(c == 'l') {
+              if(ts->params[0] == 25) ts->show_cursor_mode = false;
+            }
+          } else {
+            switch(c) {
+              case 'A':
+                ts->cy -= p1;
+                if(ts->cy < 0) ts->cy = 0;
+                break;
+              case 'B':
+                ts->cy += p1;
+                if(ts->cy >= window->h) ts->cy = window->h - 1;
+                break;
+              case 'C':
+                ts->cx += p1;
+                if(ts->cx >= window->w) ts->cx = window->w - 1;
+                break;
+              case 'D':
+                ts->cx -= p1;
+                if(ts->cx < 0) ts->cx = 0;
+                break;
+              case 'H':
+              case 'f':
+                ts->cy = p1 - 1;
+                ts->cx = p2 - 1;
+                if(ts->cy < 0) ts->cy = 0;
+                if(ts->cy >= window->h) ts->cy = window->h - 1;
+                if(ts->cx < 0) ts->cx = 0;
+                if(ts->cx >= window->w) ts->cx = window->w - 1;
+                break;
+              case 'J': {
+                int clear_type = ts->params[0];
+                if(clear_type == 0) {
+                  for(int j = ts->cy; j < window->h; ++j) {
+                    int start = (j == ts->cy) ? ts->cx : 0;
+                    for(int i = start; i < window->w; ++i)
+                      window->content[j * window->w + i] = (ts->current_attr << 8) | ' ';
+                  }
+                } else if(clear_type == 1) {
+                  for(int j = 0; j <= ts->cy; ++j) {
+                    int end = (j == ts->cy) ? ts->cx : window->w - 1;
+                    for(int i = 0; i <= end; ++i)
+                      window->content[j * window->w + i] = (ts->current_attr << 8) | ' ';
+                  }
+                } else if(clear_type == 2) {
+                  for(int i = 0; i < window->w * window->h; ++i)
+                    window->content[i] = (ts->current_attr << 8) | ' ';
                 }
-              } else if(clear_type == 1) {
-                for(int j = 0; j <= ts->cy; ++j) {
-                  int end = (j == ts->cy) ? ts->cx : window->w - 1;
-                  for(int i = 0; i <= end; ++i)
-                    window->content[j * window->w + i] = (ts->current_attr << 8) | ' ';
+              } break;
+              case 'K': {
+                int clear_type = ts->params[0];
+                if(clear_type == 0)
+                  for(int i = ts->cx; i < window->w; ++i)
+                    window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
+                else if(clear_type == 1)
+                  for(int i = 0; i <= ts->cx; ++i)
+                    window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
+                else if(clear_type == 2)
+                  for(int i = 0; i < window->w; ++i)
+                    window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
+              } break;
+              case 'm': {
+                if(ts->param_count == 0 && ts->params[0] == 0) ts->current_attr = 0x07;
+                else {
+                  for(int i = 0; i <= ts->param_count; ++i) {
+                    int p = ts->params[i];
+                    if(p == 0) ts->current_attr = 0x07;
+                    else if(p >= 30 && p <= 37)
+                      ts->current_attr = (ts->current_attr & 0xF0) | (p - 30);
+                    else if(p == 39) ts->current_attr = (ts->current_attr & 0xF0) | 0x07;
+                    else if(p >= 40 && p <= 47)
+                      ts->current_attr = (ts->current_attr & 0x0F) | ((p - 40) << 4);
+                    else if(p == 49) ts->current_attr = (ts->current_attr & 0x0F);
+                  }
                 }
-              } else if(clear_type == 2) {
-                for(int i = 0; i < window->w * window->h; ++i)
-                  window->content[i] = (ts->current_attr << 8) | ' ';
-              }
-            } break;
-            case 'K': {
-              int clear_type = ts->params[0];
-              if(clear_type == 0)
-                for(int i = ts->cx; i < window->w; ++i)
-                  window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
-              else if(clear_type == 1)
-                for(int i = 0; i <= ts->cx; ++i)
-                  window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
-              else if(clear_type == 2)
-                for(int i = 0; i < window->w; ++i)
-                  window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
-            } break;
-            case 'm': {
-              for(int i = 0; i <= ts->param_count; ++i) {
-                int p = ts->params[i];
-                if(p == 0) ts->current_attr = 0x07;
-                else if(p >= 30 && p <= 37) ts->current_attr = (ts->current_attr & 0xF0) | (p - 30);
-                else if(p >= 40 && p <= 47)
-                  ts->current_attr = (ts->current_attr & 0x0F) | ((p - 40) << 4);
-              }
-            } break;
-            case 's':
-              ts->saved_cx = ts->cx;
-              ts->saved_cy = ts->cy;
-              break;
-            case 'u':
-              ts->cx = ts->saved_cx;
-              ts->cy = ts->saved_cy;
-              break;
+              } break;
+              case 's':
+                ts->saved_cx = ts->cx;
+                ts->saved_cy = ts->cy;
+                break;
+              case 'u':
+                ts->cx = ts->saved_cx;
+                ts->cy = ts->saved_cy;
+                break;
+            }
           }
           ts->state = TERM_STATE_NORMAL;
         }
       }
     }
+    pthread_mutex_unlock(&ts->mutex);
   }
+  return NULL;
+}
+void update(window_t* window, desktop_t* desktop) {
+  (void)desktop;
+  term_state_t* ts = window->data;
+  if(!ts) return;
+  if(ts->exited) {
+    window->close_pending = true;
+    return;
+  }
+  pthread_mutex_lock(&ts->mutex);
+  if(ts->cursor_visible) {
+    if(ts->cursor_y >= 0 && ts->cursor_y < window->h && ts->cursor_x >= 0 &&
+       ts->cursor_x < window->w) {
+      window->content[ts->cursor_y * window->w + ts->cursor_x] = ts->saved_cell;
+    }
+  }
+  ts->cursor_x = ts->cx;
+  ts->cursor_y = ts->cy;
+  if(ts->show_cursor_mode && ts->cursor_y >= 0 && ts->cursor_y < window->h && ts->cursor_x >= 0 &&
+     ts->cursor_x < window->w) {
+    ts->saved_cell = window->content[ts->cursor_y * window->w + ts->cursor_x];
+    char c = ts->saved_cell & 0xFF;
+    char attr = (ts->saved_cell >> 8) & 0xFF;
+    char inv_attr = ((attr & 0x0F) << 4) | ((attr & 0xF0) >> 4);
+    if(inv_attr == 0) inv_attr = 0x77;
+    window->content[ts->cursor_y * window->w + ts->cursor_x] = (inv_attr << 8) | c;
+    ts->cursor_visible = true;
+  } else ts->cursor_visible = false;
+  pthread_mutex_unlock(&ts->mutex);
 }
 
 void window_init(desktop_t* desktop, window_t* win) {
@@ -252,8 +337,9 @@ void window_init(desktop_t* desktop, window_t* win) {
   }
   ts->pid = pid;
   ts->current_attr = 0b00000111;
+  ts->show_cursor_mode = true;
   win->onevent = onevent;
   win->update = update;
-  int flags = fcntl(ts->master_fd, F_GETFL, 0);
-  fcntl(ts->master_fd, F_SETFL, flags | O_NONBLOCK);
+  pthread_mutex_init(&ts->mutex, NULL);
+  pthread_create(&ts->tid, NULL, term_read_thread, win);
 }
