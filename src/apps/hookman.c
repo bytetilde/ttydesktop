@@ -486,11 +486,11 @@ static bool desktop_update(desktop_t* desktop) {
       for(int j = i; j < desktop->window_count - 1; ++j)
         desktop->windows[j] = desktop->windows[j + 1];
       --desktop->window_count;
+      int visible = 0;
+      for(int i = 0; i < desktop->window_count; ++i)
+        if(!desktop->windows[i].hidden && !desktop->windows[i].close_pending) ++visible;
+      snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count - 1, visible);
     }
-    int visible = 0;
-    for(int i = 0; i < desktop->window_count; ++i)
-      if(!desktop->windows[i].hidden && !desktop->windows[i].close_pending) ++visible;
-    snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count - 1, visible);
   }
   hookman_call_hooks_after(hookman, &payload, "desktop_update");
   return false;
