@@ -458,8 +458,9 @@ static bool desktop_update(desktop_t* desktop) {
           hookman_call_hooks_after(hookman, &spayload, "desktop_state_change");
           int visible = 0;
           for(int i = 0; i < desktop->window_count; ++i)
-            if(!desktop->windows[i].hidden) ++visible;
-          snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
+            if(!desktop->windows[i].hidden && !desktop->windows[i].close_pending) ++visible;
+          snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count - 1,
+                   visible);
         } else if(desktop->target > i) --desktop->target;
       }
       if(desktop->windows[i].handle && desktop->windows[i].data != hookman)
