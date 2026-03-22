@@ -302,13 +302,15 @@ bool desktop_update(desktop_t* desktop) {
       }
     } else if(desktop->state == DESKTOP_STATE_FOCUSED) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
-        desktop->dispatch_window_event(desktop, &desktop->windows[desktop->target],
-                                       WINDOW_EVENT_UNFOCUS, NULL);
-        desktop->state = DESKTOP_STATE_NORMAL;
-        int visible = 0;
-        for(int i = 0; i < desktop->window_count; ++i)
-          if(!desktop->windows[i].hidden) ++visible;
-        snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
+        bool ignore = desktop->dispatch_window_event(desktop, &desktop->windows[desktop->target],
+                                                     WINDOW_EVENT_UNFOCUS, NULL);
+        if(!ignore) {
+          desktop->state = DESKTOP_STATE_NORMAL;
+          int visible = 0;
+          for(int i = 0; i < desktop->window_count; ++i)
+            if(!desktop->windows[i].hidden) ++visible;
+          snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
+        }
       } else {
         desktop->dispatch_window_event(desktop, &desktop->windows[0], WINDOW_EVENT_KEY,
                                        (void*)(long)ch);
