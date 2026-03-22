@@ -183,6 +183,15 @@ static bool desktop_update(desktop_t* desktop) {
         hook_payload_t spayload = {
           .desktop = desktop, .window = NULL, .data = (void*)DESKTOP_STATE_PROMPT_FOCUS};
         hookman_call_hooks_after(hookman, &spayload, "desktop_state_change");
+      } else if(ch == 'b') {
+        desktop->state = DESKTOP_STATE_PROMPT_BTF;
+        desktop->buflen = 0;
+        desktop->cursor_pos = 0;
+        desktop->buf[0] = '\0';
+        set_status(desktop, ":b ");
+        hook_payload_t spayload = {
+          .desktop = desktop, .window = NULL, .data = (void*)DESKTOP_STATE_PROMPT_BTF};
+        hookman_call_hooks_after(hookman, &spayload, "desktop_state_change");
       } else if(ch == 'o') {
         desktop->state = DESKTOP_STATE_PROMPT_OPEN;
         desktop->buflen = 0;
@@ -265,6 +274,19 @@ static bool desktop_update(desktop_t* desktop) {
               desktop->target = 0;
               set_status(desktop, ":f %d (focused)", idx);
             }
+          } else if(desktop->state == DESKTOP_STATE_PROMPT_BTF) {
+            window_t target = desktop->windows[idx];
+            for(int i = idx; i > 0; --i) desktop->windows[i] = desktop->windows[i - 1];
+            desktop->windows[0] = target;
+            desktop->state = DESKTOP_STATE_NORMAL;
+            hook_payload_t spayload = {
+              .desktop = desktop, .window = NULL, .data = (void*)DESKTOP_STATE_NORMAL};
+            hookman_call_hooks_after(hookman, &spayload, "desktop_state_change");
+            int visible = 0;
+            for(int i = 0; i < desktop->window_count; ++i)
+              if(!desktop->windows[i].hidden) ++visible;
+            snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count,
+                     visible);
           } else if(desktop->state == DESKTOP_STATE_PROMPT_MOVE) {
             if(desktop->windows[idx].hidden) {
               desktop->state = DESKTOP_STATE_NORMAL;
@@ -348,6 +370,7 @@ static bool desktop_update(desktop_t* desktop) {
         char pfx = ' ';
         switch(desktop->state) {
           case DESKTOP_STATE_PROMPT_FOCUS: pfx = 'f'; break;
+          case DESKTOP_STATE_PROMPT_BTF: pfx = 'b'; break;
           case DESKTOP_STATE_PROMPT_OPEN: pfx = 'o'; break;
           case DESKTOP_STATE_PROMPT_MOVE: pfx = 'm'; break;
           case DESKTOP_STATE_PROMPT_RESIZE: pfx = 'r'; break;
