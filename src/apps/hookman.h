@@ -211,6 +211,73 @@ static inline void hookman_detach_all(hookman_t* hm, const char* name) {
   pthread_mutex_unlock(&hm->lock);
 }
 
+static inline bool hookman_call_hooks(hookman_t* hookman, hook_payload_t* payload,
+                                      const char* hook_point) {
+  if(!hookman) return false;
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks, h);
+  while(hooks) {
+    if(hooks->function(payload)) break;
+    hooks = hooks->next;
+  }
+  pthread_mutex_unlock(&hookman->lock);
+  return hooks != NULL;
+}
+static inline bool hookman_hooks_exist(hookman_t* hookman, const char* hook_point) {
+  if(!hookman) return false;
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks, h);
+  pthread_mutex_unlock(&hookman->lock);
+  return hooks != NULL;
+}
+static inline bool hookman_call_hooks_before(hookman_t* hookman, hook_payload_t* payload,
+                                             const char* hook_point) {
+  if(!hookman) return false;
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks_before, h);
+  bool result = false;
+  while(hooks) {
+    if(hooks->function(payload)) {
+      result = true;
+      break;
+    }
+    hooks = hooks->next;
+  }
+  pthread_mutex_unlock(&hookman->lock);
+  return result;
+}
+static inline bool hookman_hooks_exist_before(hookman_t* hookman, const char* hook_point) {
+  if(!hookman) return false;
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks_before, h);
+  pthread_mutex_unlock(&hookman->lock);
+  return hooks != NULL;
+}
+static inline void hookman_call_hooks_after(hookman_t* hookman, hook_payload_t* payload,
+                                            const char* hook_point) {
+  if(!hookman) return;
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks_after, h);
+  while(hooks) {
+    hooks->function(payload);
+    hooks = hooks->next;
+  }
+  pthread_mutex_unlock(&hookman->lock);
+}
+static inline bool hookman_hooks_exist_after(hookman_t* hookman, const char* hook_point) {
+  if(!hookman) return false;
+  unsigned long long h = hash(hook_point);
+  pthread_mutex_lock(&hookman->lock);
+  hook_t* hooks = hm_get(hookman->hooks_after, h);
+  pthread_mutex_unlock(&hookman->lock);
+  return hooks != NULL;
+}
+
 static inline void hookman_export(hookman_t* hm, const char* name, void* func) {
   if(!hm) return;
   unsigned long long key = hash(name);
