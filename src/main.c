@@ -145,8 +145,8 @@ static void desktop_close_window(desktop_t* desktop, int index) {
   desktop->windows[index].close_pending = true;
 }
 bool desktop_update(desktop_t* desktop) {
-  if(desktop->statustimer > 0 && desktop->state != STATE_MOVING &&
-     desktop->state != STATE_RESIZING && desktop->state != STATE_FOCUSED) {
+  if(desktop->statustimer > 0 && desktop->state != DESKTOP_STATE_MOVING &&
+     desktop->state != DESKTOP_STATE_RESIZING && desktop->state != DESKTOP_STATE_FOCUSED) {
     desktop->statustimer -= 0.033333;
     if(desktop->statustimer <= 0) {
       int visible = 0;
@@ -159,106 +159,107 @@ bool desktop_update(desktop_t* desktop) {
   if(ch != -1 && ch != 0) {
     if(desktop->onkey) {
       if(desktop->onkey(desktop, ch)) goto skip_key;
-    } else if(desktop->state == STATE_NORMAL) {
+    } else if(desktop->state == DESKTOP_STATE_NORMAL) {
       if(ch == 'q') return true;
       else if(ch == 'f') { // focus
-        desktop->state = STATE_PROMPT_FOCUS;
+        desktop->state = DESKTOP_STATE_PROMPT_FOCUS;
         desktop->buflen = 0;
         desktop->cursor_pos = 0;
         desktop->buf[0] = '\0';
         set_status(desktop, ":f ");
       } else if(ch == 'o') { // open
-        desktop->state = STATE_PROMPT_OPEN;
+        desktop->state = DESKTOP_STATE_PROMPT_OPEN;
         desktop->buflen = 0;
         desktop->cursor_pos = 0;
         desktop->buf[0] = '\0';
         set_status(desktop, ":o ");
       } else if(ch == 'm') { // move
-        desktop->state = STATE_PROMPT_MOVE;
+        desktop->state = DESKTOP_STATE_PROMPT_MOVE;
         desktop->buflen = 0;
         desktop->cursor_pos = 0;
         desktop->buf[0] = '\0';
         set_status(desktop, ":m ");
       } else if(ch == 'r') { // resize
-        desktop->state = STATE_PROMPT_RESIZE;
+        desktop->state = DESKTOP_STATE_PROMPT_RESIZE;
         desktop->buflen = 0;
         desktop->cursor_pos = 0;
         desktop->buf[0] = '\0';
         set_status(desktop, ":r ");
       } else if(ch == 'c') { // close
-        desktop->state = STATE_PROMPT_CLOSE;
+        desktop->state = DESKTOP_STATE_PROMPT_CLOSE;
         desktop->buflen = 0;
         desktop->cursor_pos = 0;
         desktop->buf[0] = '\0';
         set_status(desktop, ":c ");
       }
-    } else if(desktop->state >= STATE_PROMPT_FOCUS && desktop->state <= STATE_PROMPT_OPEN) {
+    } else if(desktop->state >= DESKTOP_STATE_PROMPT_FOCUS &&
+              desktop->state <= DESKTOP_STATE_PROMPT_OPEN) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
-        desktop->state = STATE_NORMAL;
+        desktop->state = DESKTOP_STATE_NORMAL;
         int visible = 0;
         for(int i = 0; i < desktop->window_count; ++i)
           if(!desktop->windows[i].hidden) ++visible;
         snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
       } else if(ch == TW_KEY_ENTER || ch == 10 || ch == 13) { // enter
         int idx = atoi(desktop->buf);
-        if(desktop->state == STATE_PROMPT_OPEN) {
+        if(desktop->state == DESKTOP_STATE_PROMPT_OPEN) {
           desktop_open_window(desktop, desktop->buf);
-          desktop->state = STATE_NORMAL;
+          desktop->state = DESKTOP_STATE_NORMAL;
         } else if(idx >= 0 && idx < desktop->window_count) {
-          if(desktop->state == STATE_PROMPT_FOCUS) {
+          if(desktop->state == DESKTOP_STATE_PROMPT_FOCUS) {
             bool ignore = desktop->dispatch_window_event(desktop, &desktop->windows[idx],
                                                          WINDOW_EVENT_FOCUS, NULL);
             if(ignore) {
-              desktop->state = STATE_NORMAL;
+              desktop->state = DESKTOP_STATE_NORMAL;
               set_status(desktop, "window ignored focus");
             } else {
               window_t target = desktop->windows[idx];
               for(int i = idx; i > 0; --i) desktop->windows[i] = desktop->windows[i - 1];
               desktop->windows[0] = target;
-              desktop->state = STATE_FOCUSED;
+              desktop->state = DESKTOP_STATE_FOCUSED;
               desktop->target = 0;
               set_status(desktop, ":f %d (focused)", idx);
             }
-          } else if(desktop->state == STATE_PROMPT_MOVE) {
+          } else if(desktop->state == DESKTOP_STATE_PROMPT_MOVE) {
             if(desktop->windows[idx].hidden) {
-              desktop->state = STATE_NORMAL;
+              desktop->state = DESKTOP_STATE_NORMAL;
               set_status(desktop, "window is hidden");
             } else if(desktop->windows[idx].unmovable) {
-              desktop->state = STATE_NORMAL;
+              desktop->state = DESKTOP_STATE_NORMAL;
               set_status(desktop, "window is unmovable");
             } else {
               desktop->target = idx;
               desktop->ox = desktop->windows[idx].x;
               desktop->oy = desktop->windows[idx].y;
-              desktop->state = STATE_MOVING;
+              desktop->state = DESKTOP_STATE_MOVING;
               set_status(desktop, ":m %d (moving)", idx);
             }
-          } else if(desktop->state == STATE_PROMPT_RESIZE) {
+          } else if(desktop->state == DESKTOP_STATE_PROMPT_RESIZE) {
             if(desktop->windows[idx].hidden) {
-              desktop->state = STATE_NORMAL;
+              desktop->state = DESKTOP_STATE_NORMAL;
               set_status(desktop, "window is hidden");
             } else if(desktop->windows[idx].unresizable) {
-              desktop->state = STATE_NORMAL;
+              desktop->state = DESKTOP_STATE_NORMAL;
               set_status(desktop, "window is unresizable");
             } else {
               desktop->target = idx;
               desktop->ow = desktop->windows[idx].w;
               desktop->oh = desktop->windows[idx].h;
-              desktop->state = STATE_RESIZING;
+              desktop->state = DESKTOP_STATE_RESIZING;
               set_status(desktop, ":r %d (resizing)", idx);
             }
-          } else if(desktop->state == STATE_PROMPT_CLOSE) {
+          } else if(desktop->state == DESKTOP_STATE_PROMPT_CLOSE) {
             bool ignore = desktop->dispatch_window_event(desktop, &desktop->windows[idx],
                                                          WINDOW_EVENT_CLOSE, NULL);
             if(ignore) {
-              desktop->state = STATE_NORMAL;
+              desktop->state = DESKTOP_STATE_NORMAL;
               set_status(desktop, "window ignored close");
             } else {
               if(desktop->windows[idx].handle) dlclose(desktop->windows[idx].handle);
               for(int i = idx; i < desktop->window_count - 1; ++i)
                 desktop->windows[i] = desktop->windows[i + 1];
               --desktop->window_count;
-              desktop->state = STATE_NORMAL;
+              desktop->state = DESKTOP_STATE_NORMAL;
               int visible = 0;
               for(int i = 0; i < desktop->window_count; ++i)
                 if(!desktop->windows[i].hidden) ++visible;
@@ -267,7 +268,7 @@ bool desktop_update(desktop_t* desktop) {
             }
           }
         } else {
-          desktop->state = STATE_NORMAL;
+          desktop->state = DESKTOP_STATE_NORMAL;
           set_status(desktop, "invalid index");
         }
       } else if(ch == TW_KEY_LEFT) {
@@ -287,23 +288,24 @@ bool desktop_update(desktop_t* desktop) {
         desktop->buf[desktop->cursor_pos++] = (char)ch;
         ++desktop->buflen;
       }
-      if(desktop->state >= STATE_PROMPT_FOCUS && desktop->state <= STATE_PROMPT_OPEN) {
+      if(desktop->state >= DESKTOP_STATE_PROMPT_FOCUS &&
+         desktop->state <= DESKTOP_STATE_PROMPT_OPEN) {
         char pfx = ' ';
         switch(desktop->state) {
-          case STATE_PROMPT_FOCUS: pfx = 'f'; break;
-          case STATE_PROMPT_OPEN: pfx = 'o'; break;
-          case STATE_PROMPT_MOVE: pfx = 'm'; break;
-          case STATE_PROMPT_RESIZE: pfx = 'r'; break;
-          case STATE_PROMPT_CLOSE: pfx = 'c'; break;
+          case DESKTOP_STATE_PROMPT_FOCUS: pfx = 'f'; break;
+          case DESKTOP_STATE_PROMPT_OPEN: pfx = 'o'; break;
+          case DESKTOP_STATE_PROMPT_MOVE: pfx = 'm'; break;
+          case DESKTOP_STATE_PROMPT_RESIZE: pfx = 'r'; break;
+          case DESKTOP_STATE_PROMPT_CLOSE: pfx = 'c'; break;
           default: pfx = '?'; break;
         }
         set_status(desktop, ":%c %s", pfx, desktop->buf);
       }
-    } else if(desktop->state == STATE_FOCUSED) {
+    } else if(desktop->state == DESKTOP_STATE_FOCUSED) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
         desktop->dispatch_window_event(desktop, &desktop->windows[desktop->target],
                                        WINDOW_EVENT_UNFOCUS, NULL);
-        desktop->state = STATE_NORMAL;
+        desktop->state = DESKTOP_STATE_NORMAL;
         int visible = 0;
         for(int i = 0; i < desktop->window_count; ++i)
           if(!desktop->windows[i].hidden) ++visible;
@@ -312,11 +314,11 @@ bool desktop_update(desktop_t* desktop) {
         desktop->dispatch_window_event(desktop, &desktop->windows[0], WINDOW_EVENT_KEY,
                                        (void*)(long)ch);
       }
-    } else if(desktop->state == STATE_MOVING) {
+    } else if(desktop->state == DESKTOP_STATE_MOVING) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
         desktop->windows[desktop->target].x = desktop->ox;
         desktop->windows[desktop->target].y = desktop->oy;
-        desktop->state = STATE_NORMAL;
+        desktop->state = DESKTOP_STATE_NORMAL;
         int visible = 0;
         for(int i = 0; i < desktop->window_count; ++i)
           if(!desktop->windows[i].hidden) ++visible;
@@ -326,7 +328,7 @@ bool desktop_update(desktop_t* desktop) {
                                   desktop->windows[desktop->target].y - desktop->oy};
         desktop->dispatch_window_event(desktop, &desktop->windows[desktop->target],
                                        WINDOW_EVENT_MOVE, &ev);
-        desktop->state = STATE_NORMAL;
+        desktop->state = DESKTOP_STATE_NORMAL;
         int visible = 0;
         for(int i = 0; i < desktop->window_count; ++i)
           if(!desktop->windows[i].hidden) ++visible;
@@ -335,9 +337,9 @@ bool desktop_update(desktop_t* desktop) {
       else if(ch == 'l' || ch == TW_KEY_RIGHT) ++desktop->windows[desktop->target].x;
       else if(ch == 'k' || ch == TW_KEY_UP) --desktop->windows[desktop->target].y;
       else if(ch == 'j' || ch == TW_KEY_DOWN) ++desktop->windows[desktop->target].y;
-    } else if(desktop->state == STATE_RESIZING) {
+    } else if(desktop->state == DESKTOP_STATE_RESIZING) {
       if(ch == TW_KEY_ESC || ch == 27) { // esc
-        desktop->state = STATE_NORMAL;
+        desktop->state = DESKTOP_STATE_NORMAL;
         int visible = 0;
         for(int i = 0; i < desktop->window_count; ++i)
           if(!desktop->windows[i].hidden) ++visible;
@@ -349,7 +351,7 @@ bool desktop_update(desktop_t* desktop) {
         desktop->windows[desktop->target].h = desktop->oh;
         desktop->dispatch_window_event(desktop, &desktop->windows[desktop->target],
                                        WINDOW_EVENT_RESIZE, &ev);
-        desktop->state = STATE_NORMAL;
+        desktop->state = DESKTOP_STATE_NORMAL;
         int visible = 0;
         for(int i = 0; i < desktop->window_count; ++i)
           if(!desktop->windows[i].hidden) ++visible;
@@ -411,11 +413,11 @@ void desktop_draw(desktop_t* desktop) {
       window_t* window = &desktop->windows[i];
       if(window->hidden) continue;
       char title_attr =
-        (desktop->state == STATE_FOCUSED && desktop->target == i) ? 0b00100000 : 0b01100000;
-      int draww =
-        (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->ow : window->w;
-      int drawh =
-        (desktop->state == STATE_RESIZING && desktop->target == i) ? desktop->oh : window->h;
+        (desktop->state == DESKTOP_STATE_FOCUSED && desktop->target == i) ? 0b00100000 : 0b01100000;
+      int draww = (desktop->state == DESKTOP_STATE_RESIZING && desktop->target == i) ? desktop->ow
+                                                                                     : window->w;
+      int drawh = (desktop->state == DESKTOP_STATE_RESIZING && desktop->target == i) ? desktop->oh
+                                                                                     : window->h;
       tw_fill(window->x, window->y, draww, 1, title_attr);
       char tbuf[512];
       int idx_len = snprintf(tbuf, sizeof(tbuf), "%d", i);
@@ -428,7 +430,7 @@ void desktop_draw(desktop_t* desktop) {
       } else tbuf[0] = '\0';
       if(draww > 0 && (int)strlen(tbuf) > draww) tbuf[draww] = '\0';
       if(tbuf[0] != '\0') tw_printf(window->x, window->y, title_attr, "%s", tbuf);
-      if(!(desktop->state == STATE_RESIZING && desktop->target == i)) {
+      if(!(desktop->state == DESKTOP_STATE_RESIZING && desktop->target == i)) {
         if(window->content) {
           for(int j = 0; j < window->h; ++j) {
             for(int k = 0; k < window->w; ++k) {
@@ -443,7 +445,7 @@ void desktop_draw(desktop_t* desktop) {
   tw_wh_t size = tw_get_size();
   tw_fill(0, size.h - 1, size.w, 1, 0b01110000);
   tw_puts(desktop->statustext, 0, size.h - 1, 0b01110000);
-  if(desktop->state >= STATE_PROMPT_FOCUS && desktop->state <= STATE_PROMPT_OPEN)
+  if(desktop->state >= DESKTOP_STATE_PROMPT_FOCUS && desktop->state <= DESKTOP_STATE_PROMPT_OPEN)
     tw_putc(' ', 3 + desktop->cursor_pos, size.h - 1, 0b00000111);
 }
 
@@ -457,7 +459,7 @@ int main(int argc, char** argv) {
     .windows = NULL,
     .window_count = 0,
     .window_capacity = 0,
-    .state = STATE_NORMAL,
+    .state = DESKTOP_STATE_NORMAL,
     .buflen = 0,
     .target = 0,
     .ox = 0,
