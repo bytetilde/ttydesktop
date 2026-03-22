@@ -235,6 +235,11 @@ static int tw_decode_key() {
       int params[4] = {0, 0, 0, 0};
       int p_idx = 0;
       int code = tw_read_timeout(10);
+      if(code == '[') {
+        int letter = tw_read_timeout(10);
+        if(letter >= 'A' && letter <= 'E') return TW_KEY_F1 + (letter - 'A');
+        return TW_KEY_ESC;
+      }
       while(code != -1 && (isdigit(code) || code == ';')) {
         if(code == ';') {
           if(p_idx < 3) ++p_idx;
@@ -276,7 +281,19 @@ static int tw_decode_key() {
       }
     } else if(next == 'O') {
       int code = tw_read_timeout(10);
-      if(code >= 'P' && code <= 'S') return TW_KEY_F1 + (code - 'P');
+      switch(code) {
+        case 'A': return TW_KEY_UP;
+        case 'B': return TW_KEY_DOWN;
+        case 'C': return TW_KEY_RIGHT;
+        case 'D': return TW_KEY_LEFT;
+        case 'H': return TW_KEY_HOME;
+        case 'F': return TW_KEY_END;
+        case 'P': return TW_KEY_F1;
+        case 'Q': return TW_KEY_F2;
+        case 'R': return TW_KEY_F3;
+        case 'S': return TW_KEY_F4;
+        default: return TW_KEY_ESC;
+      }
     } else return next | TW_MOD_ALT;
     return TW_KEY_ESC;
   }
