@@ -66,13 +66,17 @@ static void desktop_open_window(desktop_t* desktop, const char* path) {
     const char* home = getenv("HOME");
     char home_lib[512];
     if(home) snprintf(home_lib, sizeof(home_lib), "%s/.local/lib/ttydesktop", home);
-    const char* search_paths[] = {"./bin",
-                                  getenv("TTYDESKTOP_PATH"),
-                                  home ? home_lib : NULL,
-                                  "/usr/local/lib/ttydesktop",
-                                  "/usr/lib/ttydesktop",
-                                  NULL};
-    for(int i = 0; search_paths[i]; ++i) {
+    const char* search_paths[] = {
+      "./",
+      "./bin",
+      getenv("TTYDESKTOP_PATH"),
+      home ? home_lib : NULL,
+      "/usr/local/lib/ttydesktop",
+      "/usr/lib/ttydesktop",
+      NULL,
+    };
+    for(size_t i = 0; i < sizeof(search_paths) / sizeof(search_paths[0]); ++i) {
+      if(!search_paths[i]) continue;
       snprintf(full_path, sizeof(full_path), "%s/%s", search_paths[i], path);
       handle = dlopen(full_path, RTLD_NOW | RTLD_LOCAL);
       if(handle) {
