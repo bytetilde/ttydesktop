@@ -385,8 +385,13 @@ bool desktop_update(desktop_t* desktop) {
         continue;
       }
       if(desktop->state != DESKTOP_STATE_NORMAL) {
-        if(desktop->target == i) desktop->state = DESKTOP_STATE_NORMAL;
-        else if(desktop->target > i) --desktop->target;
+        if(desktop->target == i) {
+          desktop->state = DESKTOP_STATE_NORMAL;
+          int visible = 0;
+          for(int i = 0; i < desktop->window_count; ++i)
+            if(!desktop->windows[i].hidden) ++visible;
+          snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
+        } else if(desktop->target > i) --desktop->target;
       }
       if(desktop->windows[i].handle) dlclose(desktop->windows[i].handle);
       for(int j = i; j < desktop->window_count - 1; ++j)

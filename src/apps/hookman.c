@@ -506,6 +506,10 @@ static bool desktop_update(desktop_t* desktop) {
           hook_payload_t spayload = {
             .desktop = desktop, .window = NULL, .data = (void*)DESKTOP_STATE_NORMAL};
           call_hooks_after(&spayload, "desktop_state_change");
+          int visible = 0;
+          for(int i = 0; i < desktop->window_count; ++i)
+            if(!desktop->windows[i].hidden) ++visible;
+          snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
         } else if(desktop->target > i) --desktop->target;
       }
       if(desktop->windows[i].handle && desktop->windows[i].data != hookman)
