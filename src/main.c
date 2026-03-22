@@ -21,6 +21,7 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,7 +44,7 @@ void* window_draw_wrapper(void* arg) {
   if(window->draw) window->draw(window, desktop);
   return NULL;
 }
-void set_status(desktop_t* desktop, const char* fmt, ...) {
+static void set_status(desktop_t* desktop, const char* fmt, ...) {
   va_list args;
   va_start(args, fmt);
   vsnprintf(desktop->statustext, 256, fmt, args);
@@ -62,13 +63,17 @@ static void desktop_open_window(desktop_t* desktop, const char* path) {
     const char* home = getenv("HOME");
     char home_lib[512];
     if(home) snprintf(home_lib, sizeof(home_lib), "%s/.local/lib/ttydesktop", home);
-    const char* search_paths[] = {"./bin",
-                                  getenv("TTYDESKTOP_PATH"),
-                                  home ? home_lib : NULL,
-                                  "/usr/local/lib/ttydesktop",
-                                  "/usr/lib/ttydesktop",
-                                  NULL};
-    for(int i = 0; search_paths[i]; ++i) {
+    const char* search_paths[] = {
+      ".",
+      "./bin",
+      getenv("TTYDESKTOP_PATH"),
+      home ? home_lib : NULL,
+      "/usr/local/lib/ttydesktop",
+      "/usr/lib/ttydesktop",
+      NULL,
+    };
+    for(size_t i = 0; i < sizeof(search_paths) / sizeof(search_paths[0]); ++i) {
+      if(!search_paths[i]) continue;
       snprintf(full_path, sizeof(full_path), "%s/%s", search_paths[i], path);
       handle = dlopen(full_path, RTLD_NOW | RTLD_LOCAL);
       if(handle) {
@@ -79,15 +84,15 @@ static void desktop_open_window(desktop_t* desktop, const char* path) {
   }
   if(handle) {
     if(desktop->window_count >= desktop->window_capacity) {
-      desktop->window_capacity = desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
-      window_t* new_windows =
-        realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
+      int new_capacity = desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
+      window_t* new_windows = realloc(desktop->windows, sizeof(window_t) * new_capacity);
       if(!new_windows) {
         set_status(desktop, "error: out of memory");
         dlclose(handle);
         return;
       }
       desktop->windows = new_windows;
+      desktop->window_capacity = new_capacity;
     }
     memmove(&desktop->windows[1], &desktop->windows[0], sizeof(window_t) * desktop->window_count);
     window_t* w = &desktop->windows[0];
@@ -97,13 +102,20 @@ static void desktop_open_window(desktop_t* desktop, const char* path) {
     void (*init_fn)(desktop_t*, window_t*) = NULL;
     *(void**)(&init_fn) = dlsym(handle, "window_init");
     if(dlerror() || !init_fn) {
+      dlclose(handle);
       memmove(&desktop->windows[0], &desktop->windows[1], sizeof(window_t) * desktop->window_count);
       set_status(desktop, "error: %s: window_init not found", path);
-      dlclose(handle);
       return;
     }
     ++desktop->window_count;
     init_fn(desktop, w);
+    if(w->close_pending) {
+      if(w->handle) dlclose(w->handle);
+      memmove(&desktop->windows[0], &desktop->windows[1],
+              sizeof(window_t) * (desktop->window_count - 1));
+      --desktop->window_count;
+      return;
+    }
     desktop->dispatch_window_event(desktop, w, WINDOW_EVENT_OPEN, NULL);
     desktop->cursor_pos = 0;
     int visible = 0;
@@ -111,7 +123,6 @@ static void desktop_open_window(desktop_t* desktop, const char* path) {
       if(!desktop->windows[i].hidden) ++visible;
     snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
   } else {
-    // Check if file exists but failed to load, or just missing
     if(access(path, F_OK) == 0) set_status(desktop, "error: %s: %s", path, dlerror());
     else set_status(desktop, "error: %s not found in lookup paths", path);
   }
@@ -281,7 +292,7 @@ bool desktop_update(desktop_t* desktop) {
           --desktop->buflen;
           --desktop->cursor_pos;
         }
-      } else if(ch >= 32 && ch <= 126 && desktop->buflen < 255) {
+      } else if(ch >= 32 && ch <= 126 && desktop->buflen < 254) {
         memmove(&desktop->buf[desktop->cursor_pos + 1], &desktop->buf[desktop->cursor_pos],
                 desktop->buflen - desktop->cursor_pos + 1);
         desktop->buf[desktop->cursor_pos++] = (char)ch;
@@ -438,7 +449,7 @@ void desktop_draw(desktop_t* desktop) {
         snprintf(tbuf, sizeof(tbuf), "%d", i);
         memmove(tbuf, tbuf + (idx_len - draww), draww + 1);
       } else tbuf[0] = '\0';
-      if(draww > 0 && (int)strlen(tbuf) > draww) tbuf[draww] = '\0';
+      if(draww > 0 && draww < (int)sizeof(tbuf)) tbuf[draww] = '\0';
       if(tbuf[0] != '\0') tw_printf(window->x, window->y, title_attr, "%s", tbuf);
       if(!(desktop->state == DESKTOP_STATE_RESIZING && desktop->target == i)) {
         if(window->content) {

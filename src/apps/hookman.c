@@ -139,15 +139,15 @@ static void desktop_open_window(desktop_t* desktop, const char* path) {
   }
   if(handle) {
     if(desktop->window_count >= desktop->window_capacity) {
-      desktop->window_capacity = desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
-      window_t* new_windows =
-        realloc(desktop->windows, sizeof(window_t) * desktop->window_capacity);
+      int new_capacity = desktop->window_capacity == 0 ? 4 : desktop->window_capacity * 2;
+      window_t* new_windows = realloc(desktop->windows, sizeof(window_t) * new_capacity);
       if(!new_windows) {
         set_status(desktop, "out of memory");
         dlclose(handle);
         return;
       }
       desktop->windows = new_windows;
+      desktop->window_capacity = new_capacity;
     }
     memmove(&desktop->windows[1], &desktop->windows[0], sizeof(window_t) * desktop->window_count);
     window_t* w = &desktop->windows[0];
@@ -389,7 +389,7 @@ static bool desktop_update(desktop_t* desktop) {
           --desktop->buflen;
           --desktop->cursor_pos;
         }
-      } else if(ch >= 32 && ch <= 126 && desktop->buflen < 255) {
+      } else if(ch >= 32 && ch <= 126 && desktop->buflen < 254) {
         memmove(&desktop->buf[desktop->cursor_pos + 1], &desktop->buf[desktop->cursor_pos],
                 desktop->buflen - desktop->cursor_pos + 1);
         desktop->buf[desktop->cursor_pos++] = (char)ch;
@@ -417,8 +417,7 @@ static bool desktop_update(desktop_t* desktop) {
           int visible = 0;
           for(int i = 0; i < desktop->window_count; ++i)
             if(!desktop->windows[i].hidden) ++visible;
-          snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count,
-                   visible);
+          snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count, visible);
         }
       } else {
         desktop->dispatch_window_event(desktop, &desktop->windows[0], WINDOW_EVENT_KEY,
@@ -580,7 +579,7 @@ static void desktop_draw(desktop_t* desktop) {
             snprintf(tbuf, sizeof(tbuf), "%d", i);
             memmove(tbuf, tbuf + (idx_len - draww), draww + 1);
           } else tbuf[0] = '\0';
-          if(draww > 0 && (int)strlen(tbuf) > draww) tbuf[draww] = '\0';
+          if(draww > 0 && draww < (int)sizeof(tbuf)) tbuf[draww] = '\0';
           if(tbuf[0] != '\0') tw_printf(window->x, window->y, title_attr, "%s", tbuf);
         }
         call_hooks_after(&tpayload, "desktop_window_title");

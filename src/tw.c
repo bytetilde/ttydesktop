@@ -47,14 +47,17 @@ static void tw_check_resize() {
   tw_wh_t sz = tw_get_size();
   if(sz.w == tw_w && sz.h == tw_h) return;
   uint16_t* new_buf = realloc(tw_buf, sz.w * sz.h * sizeof(uint16_t));
-  if(new_buf) {
+  uint16_t* new_back_buf = realloc(tw_back_buf, sz.w * sz.h * sizeof(uint16_t));
+  if(new_buf && new_back_buf) {
     tw_buf = new_buf;
-    uint16_t* new_back_buf = realloc(tw_back_buf, sz.w * sz.h * sizeof(uint16_t));
-    if(new_back_buf) tw_back_buf = new_back_buf;
+    tw_back_buf = new_back_buf;
     tw_w = sz.w;
     tw_h = sz.h;
     memset(tw_buf, 0, tw_w * tw_h * sizeof(uint16_t));
-    if(tw_back_buf) memset(tw_back_buf, 0, tw_w * tw_h * sizeof(uint16_t));
+    memset(tw_back_buf, 0, tw_w * tw_h * sizeof(uint16_t));
+  } else {
+    if(new_buf) tw_buf = new_buf;
+    if(new_back_buf) tw_back_buf = new_back_buf;
   }
 }
 tw_wh_t tw_get_size() {
@@ -83,6 +86,8 @@ void tw_init() {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
     if(tw_buf) free(tw_buf);
     if(tw_back_buf) free(tw_back_buf);
+    tw_buf = NULL;
+    tw_back_buf = NULL;
     fprintf(stderr, "tw: out of memory\n");
     exit(1);
   }
@@ -118,8 +123,8 @@ void tw_puts(const char* s, int x, int y, char attr) {
 }
 void tw_fill(int x, int y, int w, int h, char attr) {
   pthread_mutex_lock(&tw_mutex);
-  for(int i = y; i < y + h; i++)
-    for(int j = x; j < x + w; j++) _tw_putc(' ', j, i, attr);
+  for(int i = y; i < y + h; ++i)
+    for(int j = x; j < x + w; ++j) _tw_putc(' ', j, i, attr);
   pthread_mutex_unlock(&tw_mutex);
 }
 void tw_printf(int x, int y, char attr, const char* fmt, ...) {
@@ -133,7 +138,7 @@ void tw_printf(int x, int y, char attr, const char* fmt, ...) {
 void tw_clear(char attr) {
   pthread_mutex_lock(&tw_mutex);
   uint16_t val = ((uint16_t)(uint8_t)attr << 8) | (uint8_t)' ';
-  for(int i = 0; i < tw_w * tw_h; i++) tw_buf[i] = val;
+  for(int i = 0; i < tw_w * tw_h; ++i) tw_buf[i] = val;
   pthread_mutex_unlock(&tw_mutex);
 }
 static void tw_write_all(const char* buf, int len) {
@@ -162,9 +167,9 @@ void tw_flush_region(int x, int y, int w, int h) {
   int ptr = 0;
   char current_attr = -1;
   const int threshold = 64000;
-  for(int j = y; j < y + h; j++) {
+  for(int j = y; j < y + h; ++j) {
     bool moved = false;
-    for(int i = x; i < x + w; i++) {
+    for(int i = x; i < x + w; ++i) {
       uint16_t val = tw_buf[j * tw_w + i];
       if(val == tw_back_buf[j * tw_w + i]) {
         moved = false;

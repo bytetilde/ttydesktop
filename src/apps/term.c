@@ -72,7 +72,7 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
       kill(ts->pid, SIGHUP);
       waitpid(ts->pid, NULL, WNOHANG);
     }
-    if(ts->content_backup) free(ts->content_backup);
+    if(ts->tid) pthread_join(ts->tid, NULL);
     pthread_mutex_destroy(&ts->mutex);
     free(ts);
     free(window->title);
@@ -83,31 +83,12 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     return false;
   } else if(event == WINDOW_EVENT_RESIZE) {
     window_resize_event_t* ev = data;
-    int new_w = window->w + ev->dw;
-    int new_h = window->h + ev->dh;
-    if(new_w <= 0 || new_h <= 0) return false;
-    short* tmp = calloc(new_w * new_h, sizeof(short));
+    (void)ev;
+    short* tmp = realloc(window->content, window->w * window->h * sizeof(short));
     if(!tmp) return false;
-    pthread_mutex_lock(&ts->mutex);
-    int copy_w = (new_w < window->w) ? new_w : window->w;
-    int copy_h = (new_h < window->h) ? new_h : window->h;
-    for(int y = 0; y < copy_h; ++y) {
-      memcpy(tmp + y * new_w, window->content + y * window->w, copy_w * sizeof(short));
-    }
-    free(window->content);
     window->content = tmp;
-    window->w = new_w;
-    window->h = new_h;
-    if(ts->cx >= window->w) ts->cx = window->w - 1;
-    if(ts->cy >= window->h) ts->cy = window->h - 1;
     struct winsize ws = {.ws_row = window->h, .ws_col = window->w, .ws_xpixel = 0, .ws_ypixel = 0};
     ioctl(ts->master_fd, TIOCSWINSZ, &ws);
-    if(ts->content_backup) {
-      free(ts->content_backup);
-      ts->content_backup = NULL;
-      ts->backup_size = 0;
-    }
-    pthread_mutex_unlock(&ts->mutex);
   } else if(event == WINDOW_EVENT_KEY) {
     long key = (long)data;
     if(ts->unfocus_pending) {
@@ -547,22 +528,18 @@ void update(window_t* window, desktop_t* desktop) {
       window->content[ts->cursor_y * window->w + ts->cursor_x] = ts->saved_cell;
     }
   }
-  if(ts->unfocus_pending && window->w >= 16 && window->h >= 2) {
+  if(ts->unfocus_pending) {
     if(!ts->content_backup) {
       ts->content_backup = malloc(window->w * window->h * sizeof(short));
-      if(ts->content_backup) {
-        memcpy(ts->content_backup, window->content, window->w * window->h * sizeof(short));
-        ts->backup_size = window->w * window->h;
-      }
+      memcpy(ts->content_backup, window->content, window->w * window->h * sizeof(short));
+      ts->backup_size = window->w * window->h;
     }
-    if(ts->content_backup) {
-      const char line1[13] = "[esc] unfocus";
-      const char line2[16] = "[enter] send esc";
-      for(int i = 0; i < 13; ++i)
-        window->content[(window->w - 13 + i)] = (0b01110000 << 8) | line1[i];
-      for(int i = 0; i < 16; ++i)
-        window->content[window->w + (window->w - 16 + i)] = (0b01110000 << 8) | line2[i];
-    }
+    const char line1[13] __attribute__((nonstring)) = "[esc] unfocus";
+    const char line2[16] __attribute__((nonstring)) = "[enter] send esc";
+    for(int i = 0; i < 13; ++i)
+      window->content[(window->w - 13 + i)] = (0b01110000 << 8) | line1[i];
+    for(int i = 0; i < 16; ++i)
+      window->content[window->w + (window->w - 16 + i)] = (0b01110000 << 8) | line2[i];
   } else if(ts->content_backup) {
     if(ts->backup_size == window->w * window->h)
       memcpy(window->content, ts->content_backup, ts->backup_size * sizeof(short));
