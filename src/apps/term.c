@@ -32,14 +32,16 @@ typedef enum parser_state_t {
   TERM_STATE_NORMAL,
   TERM_STATE_ESCAPE,
   TERM_STATE_CSI,
-  TERM_STATE_OSC
+  TERM_STATE_OSC,
+  TERM_STATE_CHARSET
 } parser_state_t;
 typedef struct term_state_t {
   int master_fd;
   pid_t pid;
   int cx, cy;
-  char current_attr;
-  enum parser_state_t state;
+  unsigned char fg, bg;
+  bool bold, inverse;
+  parser_state_t state;
   int params[16];
   int param_count;
   int saved_cx, saved_cy;
@@ -86,16 +88,27 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     ioctl(ts->master_fd, TIOCSWINSZ, &ws);
   } else if(event == WINDOW_EVENT_KEY) {
     long key = (long)data;
-    if(key >= 32 && key <= 126) {
+    if(key & TW_MOD_CTRL) {
+      int base = key & 0xFFFF;
+      char c = 0;
+      if(base >= 'a' && base <= 'z') c = base - 'a' + 1;
+      else if(base >= 'A' && base <= 'Z') c = base - 'A' + 1;
+      else if(base >= '@' && base <= '_') c = base - '@';
+      if(c > 0) write(ts->master_fd, &c, 1);
+    } else if(key > 0 && key < 128 && key != TW_KEY_UP && key != TW_KEY_DOWN &&
+              key != TW_KEY_LEFT && key != TW_KEY_RIGHT && key != TW_KEY_ESC &&
+              key != TW_KEY_ENTER && key != TW_KEY_BACKSPACE) {
       char c = (char)key;
+      if(key == 10 || key == 13) c = '\r';
+      else if(key == 8 || key == 127) c = '\177';
       write(ts->master_fd, &c, 1);
-    } else if(key == TW_KEY_ENTER || key == 10 || key == 13) write(ts->master_fd, "\r", 1);
-    else if(key == TW_KEY_BACKSPACE || key == 8 || key == 127) write(ts->master_fd, "\177", 1);
+    } else if(key == TW_KEY_ENTER) write(ts->master_fd, "\r", 1);
+    else if(key == TW_KEY_BACKSPACE) write(ts->master_fd, "\177", 1);
     else if(key == TW_KEY_UP) write(ts->master_fd, "\033[A", 3);
     else if(key == TW_KEY_DOWN) write(ts->master_fd, "\033[B", 3);
     else if(key == TW_KEY_RIGHT) write(ts->master_fd, "\033[C", 3);
     else if(key == TW_KEY_LEFT) write(ts->master_fd, "\033[D", 3);
-    else if(key == TW_KEY_ESC || key == 27) write(ts->master_fd, "\033", 1);
+    else if(key == TW_KEY_ESC) write(ts->master_fd, "\033", 1);
   }
   return false;
 }
@@ -136,17 +149,26 @@ void* term_read_thread(void* arg) {
             ts->cx = 0;
             ++ts->cy;
           }
+          unsigned char eff_fg = ts->fg;
+          unsigned char eff_bg = ts->bg;
+          if(ts->bold) eff_fg |= 0x08;
+          if(ts->inverse) {
+            unsigned char tmp = eff_fg;
+            eff_fg = eff_bg;
+            eff_bg = tmp;
+          }
+          unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
           if(ts->cy >= window->h) {
             // simple scroll up
             // i cant be bothered to implement a scrollback buffer
             memmove(window->content, window->content + window->w,
                     window->w * (window->h - 1) * sizeof(short));
             for(int cx = 0; cx < window->w; ++cx)
-              window->content[(window->h - 1) * window->w + cx] = ts->current_attr << 8 | ' ';
+              window->content[(window->h - 1) * window->w + cx] = (attr << 8) | ' ';
             ts->cy = window->h - 1;
           }
           if(ts->cy >= 0 && ts->cy < window->h && ts->cx >= 0 && ts->cx < window->w)
-            window->content[ts->cy * window->w + ts->cx] = (ts->current_attr << 8) | c;
+            window->content[ts->cy * window->w + ts->cx] = (attr << 8) | c;
           ++ts->cx;
         }
       } else if(ts->state == TERM_STATE_ESCAPE) {
@@ -157,7 +179,19 @@ void* term_read_thread(void* arg) {
           for(int p = 0; p < 16; ++p) ts->params[p] = 0;
         } else if(c == ']') {
           ts->state = TERM_STATE_OSC;
+        } else if(c == '(' || c == ')' || c == '*' || c == '+') {
+          ts->state = TERM_STATE_CHARSET;
+        } else if(c == '7') {
+          ts->saved_cx = ts->cx;
+          ts->saved_cy = ts->cy;
+          ts->state = TERM_STATE_NORMAL;
+        } else if(c == '8') {
+          ts->cx = ts->saved_cx;
+          ts->cy = ts->saved_cy;
+          ts->state = TERM_STATE_NORMAL;
         } else ts->state = TERM_STATE_NORMAL;
+      } else if(ts->state == TERM_STATE_CHARSET) {
+        ts->state = TERM_STATE_NORMAL;
       } else if(ts->state == TERM_STATE_OSC) {
         if(c == '\007') ts->state = TERM_STATE_NORMAL;
         else if(c == '\033') ts->state = TERM_STATE_ESCAPE;
@@ -195,6 +229,25 @@ void* term_read_thread(void* arg) {
                 ts->cx -= p1;
                 if(ts->cx < 0) ts->cx = 0;
                 break;
+              case 'G':
+              case '`':
+                ts->cx = p1 - 1;
+                if(ts->cx < 0) ts->cx = 0;
+                if(ts->cx >= window->w) ts->cx = window->w - 1;
+                break;
+              case 'd':
+                ts->cy = p1 - 1;
+                if(ts->cy < 0) ts->cy = 0;
+                if(ts->cy >= window->h) ts->cy = window->h - 1;
+                break;
+              case 'e':
+                ts->cy += p1;
+                if(ts->cy >= window->h) ts->cy = window->h - 1;
+                break;
+              case 'a':
+                ts->cx += p1;
+                if(ts->cx >= window->w) ts->cx = window->w - 1;
+                break;
               case 'H':
               case 'f':
                 ts->cy = p1 - 1;
@@ -204,49 +257,232 @@ void* term_read_thread(void* arg) {
                 if(ts->cx < 0) ts->cx = 0;
                 if(ts->cx >= window->w) ts->cx = window->w - 1;
                 break;
+              case '@': {
+                int n = p1;
+                if(ts->cx + n < window->w) {
+                  memmove(window->content + ts->cy * window->w + ts->cx + n,
+                          window->content + ts->cy * window->w + ts->cx,
+                          (window->w - ts->cx - n) * sizeof(short));
+                }
+                unsigned char eff_fg = ts->fg;
+                unsigned char eff_bg = ts->bg;
+                if(ts->bold) eff_fg |= 0x08;
+                if(ts->inverse) {
+                  unsigned char tmp = eff_fg;
+                  eff_fg = eff_bg;
+                  eff_bg = tmp;
+                }
+                unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                for(int i = 0; i < n && ts->cx + i < window->w; ++i)
+                  window->content[ts->cy * window->w + ts->cx + i] = (attr << 8) | ' ';
+              } break;
+              case 'P': {
+                int n = p1;
+                if(ts->cx + n < window->w) {
+                  memmove(window->content + ts->cy * window->w + ts->cx,
+                          window->content + ts->cy * window->w + ts->cx + n,
+                          (window->w - ts->cx - n) * sizeof(short));
+                }
+                unsigned char eff_fg = ts->fg;
+                unsigned char eff_bg = ts->bg;
+                if(ts->bold) eff_fg |= 0x08;
+                if(ts->inverse) {
+                  unsigned char tmp = eff_fg;
+                  eff_fg = eff_bg;
+                  eff_bg = tmp;
+                }
+                unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                for(int i = 0; i < n && window->w - 1 - i >= ts->cx; ++i)
+                  window->content[ts->cy * window->w + window->w - 1 - i] = (attr << 8) | ' ';
+              } break;
+              case 'X': {
+                int n = p1;
+                unsigned char eff_fg = ts->fg;
+                unsigned char eff_bg = ts->bg;
+                if(ts->bold) eff_fg |= 0x08;
+                if(ts->inverse) {
+                  unsigned char tmp = eff_fg;
+                  eff_fg = eff_bg;
+                  eff_bg = tmp;
+                }
+                unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                for(int i = 0; i < n && ts->cx + i < window->w; ++i)
+                  window->content[ts->cy * window->w + ts->cx + i] = (attr << 8) | ' ';
+              } break;
               case 'J': {
+                unsigned char eff_fg = ts->fg;
+                unsigned char eff_bg = ts->bg;
+                if(ts->bold) eff_fg |= 0x08;
+                if(ts->inverse) {
+                  unsigned char tmp = eff_fg;
+                  eff_fg = eff_bg;
+                  eff_bg = tmp;
+                }
+                unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
                 int clear_type = ts->params[0];
                 if(clear_type == 0) {
                   for(int j = ts->cy; j < window->h; ++j) {
                     int start = (j == ts->cy) ? ts->cx : 0;
                     for(int i = start; i < window->w; ++i)
-                      window->content[j * window->w + i] = (ts->current_attr << 8) | ' ';
+                      window->content[j * window->w + i] = (attr << 8) | ' ';
                   }
                 } else if(clear_type == 1) {
                   for(int j = 0; j <= ts->cy; ++j) {
                     int end = (j == ts->cy) ? ts->cx : window->w - 1;
                     for(int i = 0; i <= end; ++i)
-                      window->content[j * window->w + i] = (ts->current_attr << 8) | ' ';
+                      window->content[j * window->w + i] = (attr << 8) | ' ';
                   }
                 } else if(clear_type == 2) {
                   for(int i = 0; i < window->w * window->h; ++i)
-                    window->content[i] = (ts->current_attr << 8) | ' ';
+                    window->content[i] = (attr << 8) | ' ';
                 }
               } break;
               case 'K': {
+                unsigned char eff_fg = ts->fg;
+                unsigned char eff_bg = ts->bg;
+                if(ts->bold) eff_fg |= 0x08;
+                if(ts->inverse) {
+                  unsigned char tmp = eff_fg;
+                  eff_fg = eff_bg;
+                  eff_bg = tmp;
+                }
+                unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
                 int clear_type = ts->params[0];
                 if(clear_type == 0)
                   for(int i = ts->cx; i < window->w; ++i)
-                    window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
+                    window->content[ts->cy * window->w + i] = (attr << 8) | ' ';
                 else if(clear_type == 1)
                   for(int i = 0; i <= ts->cx; ++i)
-                    window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
+                    window->content[ts->cy * window->w + i] = (attr << 8) | ' ';
                 else if(clear_type == 2)
                   for(int i = 0; i < window->w; ++i)
-                    window->content[ts->cy * window->w + i] = (ts->current_attr << 8) | ' ';
+                    window->content[ts->cy * window->w + i] = (attr << 8) | ' ';
+              } break;
+              case 'L': {
+                unsigned char eff_fg = ts->fg;
+                unsigned char eff_bg = ts->bg;
+                if(ts->bold) eff_fg |= 0x08;
+                if(ts->inverse) {
+                  unsigned char tmp = eff_fg;
+                  eff_fg = eff_bg;
+                  eff_bg = tmp;
+                }
+                unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                int n = p1;
+                if(ts->cy < window->h) {
+                  int move_count = window->h - ts->cy - n;
+                  if(move_count > 0)
+                    memmove(window->content + (ts->cy + n) * window->w,
+                            window->content + ts->cy * window->w,
+                            move_count * window->w * sizeof(short));
+                  for(int i = 0; i < n && ts->cy + i < window->h; ++i)
+                    for(int c = 0; c < window->w; ++c)
+                      window->content[(ts->cy + i) * window->w + c] = (attr << 8) | ' ';
+                }
+              } break;
+              case 'M': {
+                unsigned char eff_fg = ts->fg;
+                unsigned char eff_bg = ts->bg;
+                if(ts->bold) eff_fg |= 0x08;
+                if(ts->inverse) {
+                  unsigned char tmp = eff_fg;
+                  eff_fg = eff_bg;
+                  eff_bg = tmp;
+                }
+                unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                int n = p1;
+                if(ts->cy < window->h) {
+                  int move_count = window->h - ts->cy - n;
+                  if(move_count > 0)
+                    memmove(window->content + ts->cy * window->w,
+                            window->content + (ts->cy + n) * window->w,
+                            move_count * window->w * sizeof(short));
+                  for(int i = 0; i < n && window->h - 1 - i >= ts->cy; ++i)
+                    for(int c = 0; c < window->w; ++c)
+                      window->content[(window->h - 1 - i) * window->w + c] = (attr << 8) | ' ';
+                }
+              } break;
+              case 'S': {
+                int n = p1;
+                if(n < window->h) {
+                  memmove(window->content, window->content + n * window->w,
+                          (window->h - n) * window->w * sizeof(short));
+                  unsigned char eff_fg = ts->fg;
+                  unsigned char eff_bg = ts->bg;
+                  if(ts->bold) eff_fg |= 0x08;
+                  if(ts->inverse) {
+                    unsigned char tmp = eff_fg;
+                    eff_fg = eff_bg;
+                    eff_bg = tmp;
+                  }
+                  unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                  for(int i = (window->h - n) * window->w; i < window->w * window->h; ++i)
+                    window->content[i] = (attr << 8) | ' ';
+                } else {
+                  unsigned char eff_fg = ts->fg;
+                  unsigned char eff_bg = ts->bg;
+                  if(ts->bold) eff_fg |= 0x08;
+                  if(ts->inverse) {
+                    unsigned char tmp = eff_fg;
+                    eff_fg = eff_bg;
+                    eff_bg = tmp;
+                  }
+                  unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                  for(int i = 0; i < window->w * window->h; ++i)
+                    window->content[i] = (attr << 8) | ' ';
+                }
+              } break;
+              case 'T': {
+                int n = p1;
+                if(n < window->h) {
+                  memmove(window->content + n * window->w, window->content,
+                          (window->h - n) * window->w * sizeof(short));
+                  unsigned char eff_fg = ts->fg;
+                  unsigned char eff_bg = ts->bg;
+                  if(ts->bold) eff_fg |= 0x08;
+                  if(ts->inverse) {
+                    unsigned char tmp = eff_fg;
+                    eff_fg = eff_bg;
+                    eff_bg = tmp;
+                  }
+                  unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                  for(int i = 0; i < n * window->w; ++i) window->content[i] = (attr << 8) | ' ';
+                } else {
+                  unsigned char eff_fg = ts->fg;
+                  unsigned char eff_bg = ts->bg;
+                  if(ts->bold) eff_fg |= 0x08;
+                  if(ts->inverse) {
+                    unsigned char tmp = eff_fg;
+                    eff_fg = eff_bg;
+                    eff_bg = tmp;
+                  }
+                  unsigned char attr = (eff_bg << 4) | (eff_fg & 0x0F);
+                  for(int i = 0; i < window->w * window->h; ++i)
+                    window->content[i] = (attr << 8) | ' ';
+                }
               } break;
               case 'm': {
-                if(ts->param_count == 0 && ts->params[0] == 0) ts->current_attr = 0x07;
-                else {
+                if(ts->param_count == 0 && ts->params[0] == 0) {
+                  ts->fg = 7;
+                  ts->bg = 0;
+                  ts->bold = false;
+                  ts->inverse = false;
+                } else {
                   for(int i = 0; i <= ts->param_count; ++i) {
                     int p = ts->params[i];
-                    if(p == 0) ts->current_attr = 0x07;
-                    else if(p >= 30 && p <= 37)
-                      ts->current_attr = (ts->current_attr & 0xF0) | (p - 30);
-                    else if(p == 39) ts->current_attr = (ts->current_attr & 0xF0) | 0x07;
-                    else if(p >= 40 && p <= 47)
-                      ts->current_attr = (ts->current_attr & 0x0F) | ((p - 40) << 4);
-                    else if(p == 49) ts->current_attr = (ts->current_attr & 0x0F);
+                    if(p == 0) {
+                      ts->fg = 7;
+                      ts->bg = 0;
+                      ts->bold = false;
+                      ts->inverse = false;
+                    } else if(p == 1) ts->bold = true;
+                    else if(p == 7) ts->inverse = true;
+                    else if(p == 22) ts->bold = false;
+                    else if(p == 27) ts->inverse = false;
+                    else if(p >= 30 && p <= 37) ts->fg = p - 30;
+                    else if(p == 39) ts->fg = 7;
+                    else if(p >= 40 && p <= 47) ts->bg = p - 40;
+                    else if(p == 49) ts->bg = 0;
                   }
                 }
               } break;
@@ -336,7 +572,10 @@ void window_init(desktop_t* desktop, window_t* win) {
     exit(1);
   }
   ts->pid = pid;
-  ts->current_attr = 0b00000111;
+  ts->fg = 7;
+  ts->bg = 0;
+  ts->bold = false;
+  ts->inverse = false;
   ts->show_cursor_mode = true;
   win->onevent = onevent;
   win->update = update;

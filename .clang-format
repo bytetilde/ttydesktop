@@ -9,7 +9,7 @@ AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 AllowShortLoopsOnASingleLine: true
 AllowShortCaseLabelsOnASingleLine: true
 RemoveBracesLLVM: true
-AllowShortBlocksOnASingleLine: false
+AllowShortBlocksOnASingleLine: Always
 AllowShortEnumsOnASingleLine: false
 SpaceBeforeParens: Never
 SpacesInParentheses: false
