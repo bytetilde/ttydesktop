@@ -4,9 +4,9 @@ a desktop environment window manager-like thing that runs in the terminal
 
 ## features
 * dynamic app loading with libdl
-* opening, closing, moving, resizing, focusing windows (a shocker)
+* opening, closing, moving, resizing, focusing windows, even bringing them to front (a shocker)
 * windows also have events
-* still STILL half-baked multithreading
+* it will always be half-baked multithreading
 * a bar at the bottom which is a status bar but also isnt a status bar
 * i hate ncurses
 * automatic application loading on startup from config files (autostart basically)
@@ -34,6 +34,7 @@ this is kinda a state machine
 * * `q` - quit
 * * `o` - open a new window, prompts for path to .so
 * * `f` - focus a window by index
+* * `b` - bring a window to front by index
 * * `m` - move a window by index with arrow keys or hjkl
 * * `r` - resize a window by index also with arrow keys or hjkl
 * * `c` - close a window by index
@@ -55,11 +56,12 @@ one path to an `.so` per line, `#` for comments.
 
 ## app search paths
 if an app path doesn't start with `/` or `.`, ttydesktop looks for it in these directories:
-1. `./bin/`
-2. `$TTYDESKTOP_PATH` (environment variable)
-3. `~/.local/lib/ttydesktop/`
-4. `/usr/local/lib/ttydesktop/`
-5. `/usr/lib/ttydesktop/`
+1. `./` because libdl is kinda weird
+2. `./bin/`
+3. `$TTYDESKTOP_PATH` (environment variable)
+4. `~/.local/lib/ttydesktop/`
+5. `/usr/local/lib/ttydesktop/`
+6. `/usr/lib/ttydesktop/`
 
 ## included apps
 * `bin/bouncy.so`: a bouncing ball/circle/O thing
@@ -71,11 +73,14 @@ if an app path doesn't start with `/` or `.`, ttydesktop looks for it in these d
     ![mandelbrot](screenshots/mandelbrot.png)
 * `bin/shadows.so`: adds simple drop shadows to windows; needs `hookman.so`
     ![shadows](screenshots/shadows.png)
+* `bin/terminal.so`: a terminal emulator to run ttydesktop inside itself. its also awful
 
 ## hookman
 hook points for windows, desktop updates, status bar, and other stuff; supports `before`, `after`, and override hooks
 
 also has `export`, `unexport`, and `call` for cross-app function calling
+
+apps can register their own hook points too now
 
 ## license
 GPLv3
