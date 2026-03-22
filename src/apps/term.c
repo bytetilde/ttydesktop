@@ -60,6 +60,9 @@ typedef struct term_state_t {
   int scroll_top, scroll_bot;
   bool app_cursor_keys;
   bool auto_wrap;
+  bool using_alt_screen;
+  short* alt_screen;
+  int saved_cx_main, saved_cy_main;
   char osc_buf[256];
   int osc_len;
   int osc_param;
@@ -132,6 +135,8 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     }
     if(ts->tid) pthread_join(ts->tid, NULL);
     pthread_mutex_destroy(&ts->mutex);
+    free(ts->content_backup);
+    free(ts->alt_screen);
     free(ts);
     free(window->title);
     free(window->content);
@@ -142,9 +147,18 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   } else if(event == WINDOW_EVENT_RESIZE) {
     window_resize_event_t* ev = data;
     (void)ev;
-    short* tmp = realloc(window->content, window->w * window->h * sizeof(short));
+    int new_sz = window->w * window->h;
+    short* tmp = realloc(window->content, new_sz * sizeof(short));
     if(!tmp) return false;
     window->content = tmp;
+    if(ts->alt_screen) {
+      short* atmp = realloc(ts->alt_screen, new_sz * sizeof(short));
+      if(atmp) ts->alt_screen = atmp;
+    }
+    if(ts->cx >= window->w) ts->cx = window->w - 1;
+    if(ts->cy >= window->h) ts->cy = window->h - 1;
+    if(ts->saved_cx >= window->w) ts->saved_cx = window->w - 1;
+    if(ts->saved_cy >= window->h) ts->saved_cy = window->h - 1;
     if(ts->scroll_bot >= window->h) ts->scroll_bot = window->h - 1;
     if(ts->scroll_top > ts->scroll_bot) ts->scroll_top = 0;
     struct winsize ws = {.ws_row = window->h, .ws_col = window->w, .ws_xpixel = 0, .ws_ypixel = 0};
@@ -162,11 +176,11 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     bool ctrl = (key & TW_MOD_CTRL) != 0;
     int base = key & 0xFFFF;
     if(ctrl) {
-      char c = 0;
+      char c = -1;
       if(base >= 'a' && base <= 'z') c = base - 'a' + 1;
       else if(base >= 'A' && base <= 'Z') c = base - 'A' + 1;
       else if(base >= '@' && base <= '_') c = base - '@';
-      if(c > 0) {
+      if(c >= 0) {
         if(alt) write(fd, "\033", 1);
         write(fd, &c, 1);
       }
@@ -356,7 +370,9 @@ void* term_read_thread(void* arg) {
       } else if(ts->state == TERM_STATE_CHARSET) {
         ts->state = TERM_STATE_NORMAL;
       } else if(ts->state == TERM_STATE_OSC) {
-        if(c == '\007' || c == 0x9C) {
+        if(c == '\x18' || c == '\x1A') {
+          ts->state = TERM_STATE_NORMAL;
+        } else if(c == '\007' || c == 0x9C) {
           ts->osc_buf[ts->osc_len] = '\0';
           if((ts->osc_param == 0 || ts->osc_param == 1 || ts->osc_param == 2) && ts->osc_len > 0) {
             free(window->title);
@@ -402,9 +418,62 @@ void* term_read_thread(void* arg) {
                   case 7: ts->auto_wrap = on; break;
                   case 12: break;
                   case 25: ts->show_cursor_mode = on; break;
-                  case 47: break;
-                  case 1047: break;
-                  case 1049: break;
+                  case 47:
+                    if(on && !ts->using_alt_screen) {
+                      int sz = window->w * window->h;
+                      ts->alt_screen = malloc(sz * sizeof(short));
+                      if(ts->alt_screen) {
+                        memcpy(ts->alt_screen, window->content, sz * sizeof(short));
+                        ts->using_alt_screen = true;
+                      }
+                    } else if(!on && ts->using_alt_screen) {
+                      int sz = window->w * window->h;
+                      memcpy(window->content, ts->alt_screen, sz * sizeof(short));
+                      free(ts->alt_screen);
+                      ts->alt_screen = NULL;
+                      ts->using_alt_screen = false;
+                    }
+                    break;
+                  case 1047:
+                    if(on && !ts->using_alt_screen) {
+                      int sz = window->w * window->h;
+                      ts->alt_screen = malloc(sz * sizeof(short));
+                      if(ts->alt_screen) {
+                        memcpy(ts->alt_screen, window->content, sz * sizeof(short));
+                        fill_cells(window->content, 0, sz, make_attr(ts));
+                        ts->using_alt_screen = true;
+                      }
+                    } else if(!on && ts->using_alt_screen) {
+                      int sz = window->w * window->h;
+                      memcpy(window->content, ts->alt_screen, sz * sizeof(short));
+                      free(ts->alt_screen);
+                      ts->alt_screen = NULL;
+                      ts->using_alt_screen = false;
+                    }
+                    break;
+                  case 1049:
+                    if(on && !ts->using_alt_screen) {
+                      ts->saved_cx_main = ts->cx;
+                      ts->saved_cy_main = ts->cy;
+                      int sz = window->w * window->h;
+                      ts->alt_screen = malloc(sz * sizeof(short));
+                      if(ts->alt_screen) {
+                        memcpy(ts->alt_screen, window->content, sz * sizeof(short));
+                        fill_cells(window->content, 0, sz, make_attr(ts));
+                        ts->using_alt_screen = true;
+                      }
+                    } else if(!on && ts->using_alt_screen) {
+                      int sz = window->w * window->h;
+                      memcpy(window->content, ts->alt_screen, sz * sizeof(short));
+                      free(ts->alt_screen);
+                      ts->alt_screen = NULL;
+                      ts->using_alt_screen = false;
+                      ts->cx = ts->saved_cx_main;
+                      ts->cy = ts->saved_cy_main;
+                      if(ts->cx >= window->w) ts->cx = window->w - 1;
+                      if(ts->cy >= window->h) ts->cy = window->h - 1;
+                    }
+                    break;
                   case 2004: break;
                   default: break;
                 }
@@ -490,10 +559,6 @@ void* term_read_thread(void* arg) {
                   fill_cells(window->content, ts->cy * window->w, ts->cx + 1, attr);
                 } else if(et == 2 || et == 3) {
                   fill_cells(window->content, 0, window->w * window->h, attr);
-                  if(et == 2) {
-                    ts->cx = 0;
-                    ts->cy = 0;
-                  }
                 }
               } break;
               case 'K': {
@@ -576,13 +641,15 @@ void* term_read_thread(void* arg) {
                       if(p == 5) {
                         ts->sgr_sub = 1;
                         continue;
+                      } else if(p == 2) {
+                        ts->sgr_sub = 3;
+                        continue;
                       } else {
                         ts->sgr_pending = 0;
-                        ts->sgr_sub = 0;
+                        continue;
                       }
                     } else {
-                      ts->sgr_pending = 0;
-                      ts->sgr_sub = 0;
+                      if(--ts->sgr_sub == 0) ts->sgr_pending = 0;
                       continue;
                     }
                   }
@@ -611,8 +678,7 @@ void* term_read_thread(void* arg) {
                 }
               } break;
               case 'c': {
-                const char* resp = "\033[?6c";
-                write(ts->master_fd, resp, 5);
+                if(p0 == 0) write(ts->master_fd, "\033[?1;2c", 7);
               } break;
               case 'n': {
                 if(p0 == 5) {
@@ -669,10 +735,12 @@ void update(window_t* window, desktop_t* desktop) {
     }
     const char line1[13] __attribute__((nonstring)) = "[esc] unfocus";
     const char line2[16] __attribute__((nonstring)) = "[enter] send esc";
-    for(int j = 0; j < 13; ++j)
-      window->content[(window->w - 13 + j)] = (0b01110000 << 8) | line1[j];
-    for(int j = 0; j < 16; ++j)
-      window->content[window->w + (window->w - 16 + j)] = (0b01110000 << 8) | line2[j];
+    if(window->w >= 13 && window->h >= 1)
+      for(int j = 0; j < 13; ++j)
+        window->content[(window->w - 13 + j)] = (0b01110000 << 8) | line1[j];
+    if(window->w >= 16 && window->h >= 2)
+      for(int j = 0; j < 16; ++j)
+        window->content[window->w + (window->w - 16 + j)] = (0b01110000 << 8) | line2[j];
   } else if(ts->content_backup) {
     if(ts->backup_size == window->w * window->h)
       memcpy(window->content, ts->content_backup, ts->backup_size * sizeof(short));
