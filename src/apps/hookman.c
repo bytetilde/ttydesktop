@@ -479,11 +479,6 @@ static bool desktop_update(desktop_t* desktop) {
           hook_payload_t spayload = {
             .desktop = desktop, .window = NULL, .data = (void*)DESKTOP_STATE_NORMAL};
           hookman_call_hooks_after(hookman, &spayload, "desktop_state_change");
-          int visible = 0;
-          for(int i = 0; i < desktop->window_count; ++i)
-            if(!desktop->windows[i].hidden && !desktop->windows[i].close_pending) ++visible;
-          snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count - 1,
-                   visible);
         } else if(desktop->target > i) --desktop->target;
       }
       if(desktop->windows[i].handle && desktop->windows[i].data != hookman)
@@ -492,6 +487,10 @@ static bool desktop_update(desktop_t* desktop) {
         desktop->windows[j] = desktop->windows[j + 1];
       --desktop->window_count;
     }
+    int visible = 0;
+    for(int i = 0; i < desktop->window_count; ++i)
+      if(!desktop->windows[i].hidden && !desktop->windows[i].close_pending) ++visible;
+    snprintf(desktop->statustext, 256, "%d apps, %d visible", desktop->window_count - 1, visible);
   }
   hookman_call_hooks_after(hookman, &payload, "desktop_update");
   return false;
