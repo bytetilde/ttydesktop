@@ -46,9 +46,11 @@ static void tw_check_resize() {
   tw_resized = 0;
   tw_wh_t sz = tw_get_size();
   if(sz.w == tw_w && sz.h == tw_h) return;
-  uint16_t* new_buf = realloc(tw_buf, sz.w * sz.h * sizeof(uint16_t));
-  uint16_t* new_back_buf = realloc(tw_back_buf, sz.w * sz.h * sizeof(uint16_t));
+  uint16_t* new_buf = malloc(sz.w * sz.h * sizeof(uint16_t));
+  uint16_t* new_back_buf = malloc(sz.w * sz.h * sizeof(uint16_t));
   if(new_buf && new_back_buf) {
+    free(tw_buf);
+    free(tw_back_buf);
     tw_buf = new_buf;
     tw_back_buf = new_back_buf;
     tw_w = sz.w;
@@ -56,8 +58,8 @@ static void tw_check_resize() {
     memset(tw_buf, 0, tw_w * tw_h * sizeof(uint16_t));
     memset(tw_back_buf, 0, tw_w * tw_h * sizeof(uint16_t));
   } else {
-    if(new_buf) tw_buf = new_buf;
-    if(new_back_buf) tw_back_buf = new_back_buf;
+    if(new_buf) free(new_buf);
+    if(new_back_buf) free(new_back_buf);
   }
 }
 tw_wh_t tw_get_size() {
@@ -323,7 +325,8 @@ int tw_getch() {
   }
   if(key != -1) {
     memset(tw_keys, 0, sizeof(tw_keys));
-    if(key >= 0 && key < 2048) tw_keys[key] = true;
+    int base_key = key & 0xFFFF;
+    if(base_key >= 0 && base_key < 2048) tw_keys[base_key] = true;
   }
   return key;
 }

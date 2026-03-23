@@ -147,13 +147,29 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
   } else if(event == WINDOW_EVENT_RESIZE) {
     window_resize_event_t* ev = data;
     (void)ev;
+    pthread_mutex_lock(&ts->mutex);
+    if(ts->cursor_visible) {
+      if(ts->cursor_y >= 0 && ts->cursor_y < window->h && ts->cursor_x >= 0 &&
+         ts->cursor_x < window->w) {
+        window->content[ts->cursor_y * window->w + ts->cursor_x] = ts->saved_cell;
+      }
+      ts->cursor_visible = false;
+    }
     int new_sz = window->w * window->h;
     short* tmp = realloc(window->content, new_sz * sizeof(short));
-    if(!tmp) return false;
+    if(!tmp) {
+      pthread_mutex_unlock(&ts->mutex);
+      return false;
+    }
     window->content = tmp;
     if(ts->alt_screen) {
       short* atmp = realloc(ts->alt_screen, new_sz * sizeof(short));
       if(atmp) ts->alt_screen = atmp;
+      else {
+        free(ts->alt_screen);
+        ts->alt_screen = NULL;
+        ts->using_alt_screen = false;
+      }
     }
     if(ts->cx >= window->w) ts->cx = window->w - 1;
     if(ts->cy >= window->h) ts->cy = window->h - 1;
@@ -163,6 +179,7 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     if(ts->scroll_top > ts->scroll_bot) ts->scroll_top = 0;
     struct winsize ws = {.ws_row = window->h, .ws_col = window->w, .ws_xpixel = 0, .ws_ypixel = 0};
     ioctl(ts->master_fd, TIOCSWINSZ, &ws);
+    pthread_mutex_unlock(&ts->mutex);
   } else if(event == WINDOW_EVENT_KEY) {
     long key = (long)data;
     if(ts->unfocus_pending) {
@@ -174,32 +191,52 @@ bool onevent(window_t* window, desktop_t* desktop, int event, void* data) {
     if(fd < 0) return false;
     bool alt = (key & TW_MOD_ALT) != 0;
     bool ctrl = (key & TW_MOD_CTRL) != 0;
+    bool shift = (key & TW_MOD_SHIFT) != 0;
     int base = key & 0xFFFF;
     if(ctrl) {
-      char c = -1;
+      int c = -1;
       if(base >= 'a' && base <= 'z') c = base - 'a' + 1;
       else if(base >= 'A' && base <= 'Z') c = base - 'A' + 1;
       else if(base >= '@' && base <= '_') c = base - '@';
+      else if(base == ' ') c = 0;
       if(c >= 0) {
         if(alt) write(fd, "\033", 1);
         write(fd, &c, 1);
+        return false;
       }
-      return false;
     }
 #define SEND(seq)                                                                                  \
   do {                                                                                             \
     if(alt) write(fd, "\033", 1);                                                                  \
-    write(fd, (seq), sizeof(seq) - 1);                                                             \
+    write(fd, (seq), strlen(seq));                                                                 \
   } while(0)
-    if(base == TW_KEY_UP) SEND(ts->app_cursor_keys ? "\033OA" : "\033[A");
-    else if(base == TW_KEY_DOWN) SEND(ts->app_cursor_keys ? "\033OB" : "\033[B");
-    else if(base == TW_KEY_RIGHT) SEND(ts->app_cursor_keys ? "\033OC" : "\033[C");
-    else if(base == TW_KEY_LEFT) SEND(ts->app_cursor_keys ? "\033OD" : "\033[D");
-    else if(base == TW_KEY_ENTER) SEND("\r");
+    if(base == TW_KEY_UP) {
+      if(ctrl && shift) SEND("\033[1;6A");
+      else if(ctrl) SEND("\033[1;5A");
+      else if(shift) SEND("\033[1;2A");
+      else SEND(ts->app_cursor_keys ? "\033OA" : "\033[A");
+    } else if(base == TW_KEY_DOWN) {
+      if(ctrl && shift) SEND("\033[1;6B");
+      else if(ctrl) SEND("\033[1;5B");
+      else if(shift) SEND("\033[1;2B");
+      else SEND(ts->app_cursor_keys ? "\033OB" : "\033[B");
+    } else if(base == TW_KEY_RIGHT) {
+      if(ctrl && shift) SEND("\033[1;6C");
+      else if(ctrl) SEND("\033[1;5C");
+      else if(shift) SEND("\033[1;2C");
+      else SEND(ts->app_cursor_keys ? "\033OC" : "\033[C");
+    } else if(base == TW_KEY_LEFT) {
+      if(ctrl && shift) SEND("\033[1;6D");
+      else if(ctrl) SEND("\033[1;5D");
+      else if(shift) SEND("\033[1;2D");
+      else SEND(ts->app_cursor_keys ? "\033OD" : "\033[D");
+    } else if(base == TW_KEY_ENTER) SEND("\r");
     else if(base == TW_KEY_BACKSPACE) SEND("\177");
     else if(base == TW_KEY_ESC) SEND("\033");
-    else if(base == TW_KEY_TAB) SEND("\t");
-    else if(base == TW_KEY_HOME) SEND("\033[1~");
+    else if(base == TW_KEY_TAB) {
+      if(shift) SEND("\033[Z");
+      else SEND("\t");
+    } else if(base == TW_KEY_HOME) SEND("\033[1~");
     else if(base == TW_KEY_END) SEND("\033[4~");
     else if(base == TW_KEY_INSERT) SEND("\033[2~");
     else if(base == TW_KEY_DELETE) SEND("\033[3~");
@@ -649,6 +686,10 @@ void* term_read_thread(void* arg) {
                         continue;
                       }
                     } else {
+                      if(ts->sgr_sub == 1) {
+                        if(ts->sgr_pending == 38 && p >= 0 && p <= 15) ts->fg = p;
+                        else if(ts->sgr_pending == 48 && p >= 0 && p <= 15) ts->bg = p;
+                      }
                       if(--ts->sgr_sub == 0) ts->sgr_pending = 0;
                       continue;
                     }
@@ -772,6 +813,7 @@ void window_init(desktop_t* desktop, window_t* win) {
   if(!win->content) {
     free(win->title);
     win->title = NULL;
+    win->content = NULL;
     win->close_pending = true;
     return;
   }
@@ -780,6 +822,7 @@ void window_init(desktop_t* desktop, window_t* win) {
     free(win->content);
     free(win->title);
     win->title = NULL;
+    win->content = NULL;
     win->close_pending = true;
     return;
   }
@@ -791,6 +834,8 @@ void window_init(desktop_t* desktop, window_t* win) {
     free(win->content);
     free(win->title);
     win->title = NULL;
+    win->content = NULL;
+    win->data = NULL;
     win->close_pending = true;
     return;
   } else if(pid == 0) {
