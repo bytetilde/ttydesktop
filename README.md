@@ -1,7 +1,7 @@
 # ttydesktop
 
 [![license: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![build status](https://img.shields.io/github/actions/workflow/status/bytetilde/ttydesktop/ci.yml?branch=main)](https://github.com/bytetilde/ttydesktop/actions)
+[![build status](https://img.shields.io/github/actions/workflow/status/bytetilde/ttydesktop/ci.yml?branch=master)](https://github.com/bytetilde/ttydesktop/actions)
 [![made with C](https://img.shields.io/badge/made%20with-C-blue.svg)](https://en.wikipedia.org/wiki/C_(programming_language))
 
 a desktop environment / window manager thing that runs entirely in the terminal
