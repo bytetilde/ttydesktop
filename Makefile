@@ -1,7 +1,19 @@
 CC := clang
-CFLAGS := -Wall -Wextra -Iinclude -MMD -MP -fPIC -pthread -O0 -g
-LDFLAGS := -fuse-ld=lld -pthread -ldl -rdynamic
-
+CFLAGS_BASE := -Wall -Wextra -Iinclude -MMD -MP -fPIC -pthread
+LDFLAGS_BASE := -fuse-ld=lld -pthread -ldl -rdynamic
+BUILD_TYPE ?= debug
+ARCH ?= x86_64
+ifeq ($(BUILD_TYPE), debug)
+	CFLAGS_OPT := -O0 -g -march=$(ARCH) -mtune=$(ARCH)
+	LDFLAGS_OPT :=
+else ifeq ($(BUILD_TYPE), release)
+	CFLAGS_OPT := -O3 -flto=full -march=$(ARCH) -mtune=$(ARCH)
+	LDFLAGS_OPT := -flto=full -s
+else
+	$(error invalid BUILD_TYPE $(BUILD_TYPE))
+endif
+CFLAGS := $(CFLAGS_BASE) $(CFLAGS_OPT)
+LDFLAGS := $(LDFLAGS_BASE) $(LDFLAGS_OPT)
 TARGET := ttydesktop
 
 SRC_DIR := src

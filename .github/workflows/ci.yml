@@ -1,0 +1,39 @@
+# i moved to codeberg
+# but um
+name: Build CI
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86-64, x86-64-v2]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make
+      - name: Build Desktop and Apps (Release)
+        run: |
+          make all-desktop BUILD_TYPE=release ARCH=${{ matrix.arch }}
+          make all-apps BUILD_TYPE=release ARCH=${{ matrix.arch }}
+      - name: Organize Binaries
+        run: |
+          mkdir -p dist/${{ matrix.arch }}
+          mv bin/ttydesktop dist/${{ matrix.arch }}/ttydesktop-${{ matrix.arch }}
+          mv bin/*.so dist/${{ matrix.arch }}/
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ttydesktop-builds-${{ matrix.arch }}
+          path: dist/${{ matrix.arch }}/
+          if-no-files-found: error
